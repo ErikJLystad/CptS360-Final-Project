@@ -20,7 +20,7 @@ SUPER *sp;
 INODE *ip;
 DIR   *dp; 
 
-#define BLOCK_SIZE        1024
+//#define BLOCK_SIZE        1024
 #define BLKSIZE           1024
 #define BITS_PER_BLOCK    (8*BLOCK_SIZE)
 #define INODES_PER_BLOCK  (BLOCK_SIZE/sizeof(INODE))
