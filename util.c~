@@ -104,7 +104,6 @@ int search(MINODE *mip, char *name)
   return 0;
 }
 
-<<<<<<< HEAD
 //This function releases a Minode[] pointed by mip.
 int iput(MINODE *mip)
 {
@@ -131,7 +130,7 @@ int findino(MINODE *mip; int *myino, *parentino)
 {
   //ASK KC ABOUT THIS
 }
-=======
+
 MINODE *iget(int dev, int ino)
 {
   MINODE *mip;
@@ -204,7 +203,3 @@ int findmyname(MINODE *parent, int myino, char *myname)
   return 0;
   
 }
-
-
-
->>>>>>> master
