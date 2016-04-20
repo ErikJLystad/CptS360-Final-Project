@@ -128,7 +128,9 @@ int iput(MINODE *mip)
 
 int findino(MINODE *mip; int *myino, *parentino)
 {
-  //ASK KC ABOUT THIS
+  *myino = search(mip, ".");
+  *parentino = search(mip, "..");
+  return *myino;
 }
 
 MINODE *iget(int dev, int ino)
