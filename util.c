@@ -108,11 +108,11 @@ int search(MINODE *mip, char *name)
 int iput(MINODE *mip)
 {
   mip->refCount--;
-  if(mip->refcount > 0 || mip->dirty == 0)
+  if(mip->refCount > 0 || mip->dirty == 0)
   {
     return;
   }
-  if(mip->refcount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
+  if(mip->refCount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
   {
     //Writing Inode back to disk
     int block = (mip->ino - 1) / 8 + INODEBLOCK;
@@ -126,7 +126,7 @@ int iput(MINODE *mip)
   }
 }
 
-int findino(MINODE *mip; int *myino, *parentino)
+int findino(MINODE *mip, int *myino, int *parentino)
 {
   *myino = search(mip, ".");
   *parentino = search(mip, "..");
