@@ -69,7 +69,7 @@ int getino(int *dev, char *pathname) //int ino = getino(&dev, pathname) essentia
     if (inumber == 0) //: can't find name[i], BOMB OUT!
     {
       printf("inode could not be found\n");
-      exit(1);
+      return 0;
     }
   }
    return inumber;

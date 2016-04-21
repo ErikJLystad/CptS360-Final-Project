@@ -191,6 +191,58 @@ int create_dir_entry(MINODE *parent, int inumber, char *name)
   return;
 }
 
+int ls(char *path)
+{
+  int inumber, dev = running->cwd->dev, i = 0, bnumber, block_position;
+  MINODE *mip = running->cwd;
+  char buffer[BLKSIZE], *string_position;
+  DIR *dir;
+ 
+  if(path)  //there should always be a path passed in
+  {
+    if(path[0] == '/') //if path is absolute
+      dev = root->dev;
+
+    inumber = getino(&dev, path); //get this specific path
+
+    if(inumber == 0)
+    {
+      printf("ls: could not find directory\n");
+      return 0;
+    }
+
+    mip = iget(dev, inumber);
+    if(is_dir(mip) == 0)
+    {
+      printf("ls: that's not a directory\n");
+      return 0;
+    }
+
+    //first 12 data blocks
+    for(i = 0; i < 12; i++)
+    {
+      if(mip->INODE.i_block[i] == 0) //if empty block, we're done
+        return 0;
+
+      bnumber = get_block(0, mip->INODE.i_block[i], buffer); 
+      dir = (DIR *)buffer;
+
+      block_position = 0;
+      while(block_position < BLKSIZE) //print all dir entries in the block
+      {
+        printf("%s\n", dir->name);
+    
+        //move rec_len bytes
+        block_position += dir->rec_len;
+        string_position = (char *)dir;
+        string_position += dir->rec_len;
+        dir = (DIR *)string_position;
+      }
+    }
+    
+  }
+}
+
 int main()
 {
 }
