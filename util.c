@@ -75,6 +75,8 @@ int getino(int *dev, char *pathname) //int ino = getino(&dev, pathname) essentia
    return inumber;
 }
 
+//search for a file by name starting with mip
+//if found, return inumber. if not, return 0.
 int search(MINODE *mip, char *name)
 {
   int i;
@@ -133,7 +135,7 @@ int findino(MINODE *mip, int *myino, int *parentino)
   return *myino;
 }
 
-MINODE *iget(int dev, int ino)
+MINODE* iget(int dev, int ino)
 {
   MINODE *mip;
   //search MINODE array for inode
