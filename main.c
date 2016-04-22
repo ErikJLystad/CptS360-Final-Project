@@ -1,5 +1,9 @@
 #include "type.h"
 
+typedef unsigned int   u32;
+
+
+
 MINODE minode[NMINODES];
 MINODE *root;
 PROC   proc[NPROC], *running;
@@ -8,8 +12,225 @@ MOUNT  mounttab[5];
 int fd, dev;
 int nblocks, ninodes, bmap, imap, iblock;
 char pathname[256], parameter[256];
+char *tokenized_pathname[256];
+int num_tokens;
+
+int get_block(int fd, int blk, char buffer[ ]) //credit to KCW
+{
+  lseek(fd, (long)blk*BLKSIZE, 0);
+  read(fd, buffer, BLKSIZE);
+}
+
+int put_block(int fd, int blk, char buffer[ ]) //credit to KCW
+{
+  lseek(fd, (long)blk*BLKSIZE, 0);
+  write(fd, buffer, BLKSIZE);
+}
+
+void tokenize(char* name)
+{
+  int i = 0;
+  char *token = strtok(name, "/");
+  while(token != 0)
+  {
+    tokenized_pathname[i] = token;
+    i++;
+    token = strtok(0, "/");
+  }
+  num_tokens = i;
+  printf("\npathname has been split\n");
+  i = 0;
+  while(tokenized_pathname[i] != 0)
+  {
+    printf("pathname[%d] = %s\n", i, tokenized_pathname[i]);
+    i++;
+  }
+}
+
+int getino(int *dev, char *pathname) //int ino = getino(&dev, pathname) essentially returns (dev,ino) of a pathname
+{
+  int i = 0, inumber, blocknumber;
+  //1. update *dev
+  if (strcmp(pathname[0], "/") == 0)
+    *dev = root->dev;
+  else
+    *dev = running->cwd->dev; //running is a pointer to PROC of current running process.
+
+   tokenize(pathname);
+
+  //2. find and return ino
+  for (i = 0; i < num_tokens; i++) //n is number of steps in pathname
+  {
+    inumber = search(ip, pathname[i]);  
+    if (inumber == 0) //: can't find name[i], BOMB OUT!
+    {
+      printf("inode could not be found\n");
+      return 0;
+    }
+  }
+   return inumber;
+}
+
+//search for a file by name starting with mip
+//if found, return inumber. if not, return 0.
+int search(MINODE *mip, char *name)
+{
+  int i;
+  char *copy, sbuf[BLKSIZE];
+  DIR *dp;
+  INODE *ip;
+
+  ip = &(mip->INODE);
+  for(i = 0; i < 12; i++)
+  {
+    if(ip->i_block[0] == 0)
+      return 0;
+
+    get_block(fd, ip->i_block[i], sbuf);
+    dp = (DIR*)sbuf;
+    copy = sbuf;
+
+    while(copy < sbuf + BLKSIZE)
+    {
+       if(strcmp(dp->name, name) == 0)
+         return dp->inode;
+
+       copy += dp->rec_len;
+       dp = (DIR *)copy;
+    }
+  }
+  return 0;
+}
+
+//This function releases a Minode[] pointed by mip.
+int iput(MINODE *mip)
+{
+  char buffer[BLKSIZE];
+
+  mip->refCount--;
+  if(mip->refCount > 0 || mip->dirty == 0)
+  {
+    return;
+  }
+  if(mip->refCount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
+  {
+    //Writing Inode back to disk
+    int block = (mip->ino - 1) / 8 + INODEBLOCK;
+    int offset = (mip->ino -1) % 8;
+    
+    //read block into buf
+    get_block(fd, block, buffer);
+    ip = (INODE *)buffer + offset;
+    *ip = mip->INODE;
+    put_block(fd, block, buffer);
+  }
+}
+
+int findino(MINODE *mip, int *myino, int *parentino)
+{
+  *myino = search(mip, ".");
+  *parentino = search(mip, "..");
+  return *myino;
+}
+
+MINODE* iget(int dev, int ino)
+{
+  char buffer[BLKSIZE];
+
+  MINODE *mip;
+  //search MINODE array for inode
+  int i = 0, blk, offset;
+  for(i = 0; i < NMINODES; i++)
+  {
+    if(minode[i].refCount > 0 && minode[i].dev == dev && minode[i].ino == ino)
+    {
+      minode[i].refCount++;
+      return &minode[i];
+    }
+    if(minode[i].refCount == 0) //find a minode whose refCount = 0
+    {
+      mip = &minode[i];
+    }
+  }
+  
+  //use mailman's algorithm to compute
+  blk = (ino - 1)/8 + INODEBLOCK;
+  offset = (ino - 1) % 8;
+
+  //read blk into buf[]
+  get_block(fd, blk, buffer); 
+  ip = (INODE *)buffer + offset; //ip already defined in types.h
+  mip->INODE = *ip;
+
+  //initialize fields of *mip
+  mip->dev = dev;
+  mip->ino = ino;
+  mip->refCount = 1;
+  mip->dirty = 0;
+  mip->mounted = 0;
+  mip->mountptr = NULL;
+  strcpy(mip->name, "");
+
+  return mip;
+}
+
+//function finds the name string of myino in the parent's data block
+int findmyname(MINODE *parent, int myino, char *myname)
+{
+  int i;
+  char *copy, sbuf[BLKSIZE];
+  DIR *dp;
+  INODE *ip;
+
+  ip = &(parent->INODE);
+  for(i = 0; i < 12; i++)
+  {
+    if(ip->i_block[0] == 0)
+      return 0;
+
+    get_block(fd, ip->i_block[i], sbuf);
+    dp = (DIR*)sbuf;
+    copy = sbuf;
+
+    while(copy < sbuf + BLKSIZE)
+    {
+       if(dp->inode == myino)
+       {
+         strcpy(myname, dp->name);
+         return 1;
+       }
+
+       copy += dp->rec_len;
+       dp = (DIR *)copy;
+    }
+  }
+  return 0;
+  
+}
 
 //level 1
+
+int init() //initialize level 1 data structures
+{
+  int i = 0;
+
+  //initialize super user
+  proc[0].uid = 0;
+  proc[0].cwd = &minode[0];
+
+  //initialize regular user
+  proc[1].uid = 1;
+  proc[1].cwd = &minode[0];
+
+  running = &proc[0]; //beginning process
+
+  root = 0; //root 
+
+  for(i = 0; i < 100; i++)
+  {
+    minode[i].refCount = 0;
+  }
+}
 
 int is_dir(MINODE *mip)
 {
@@ -19,7 +240,7 @@ int is_dir(MINODE *mip)
     return 0;
 }
 
-int make_dir() //returns 1 on success, 0 on failure
+int make_dir(char *path) //returns 1 on success, 0 on failure
 {
   MINODE *mip, *parent_mip;
   int parent_ino;
@@ -36,9 +257,9 @@ int make_dir() //returns 1 on success, 0 on failure
     dev = running->cwd->dev;
   }
 
-  temp_path = strdup(pathname); //prepare for destruction 
+  temp_path = strdup(path); //prepare for destruction 
   parent = dirname(temp_path);
-  temp_path = strdup(pathname);
+  temp_path = strdup(path);
   child = basename(temp_path);
 
   //get IN_MEMORY minode of parent
@@ -191,7 +412,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name)
   return;
 }
 
-int ls(char *path)
+int myls(char *path)
 {
   int inumber, dev = running->cwd->dev, i = 0, bnumber, block_position;
   MINODE *mip = running->cwd;
@@ -243,6 +464,48 @@ int ls(char *path)
   }
 }
 
+int myrmdir(char* path){}
+int mycd(char * path){}
+int mypwd(char *path){}
+int mycreat(char *path){}
+int mylink(char *path){}
+int myunlink(char *path){}
+int mysymlink(char *path){}
+int mymenu(){}
+int myexit(){}
+int mystat(char *path){}
+int mychmod(char *path){}
+int mychown(char *path){}
+int mytouch(char *path){}
+int mychgrp(char *path){}
+
+char *commands[] = {"mkdir", "rmdir", "cd", "ls", "pwd", "creat", "link", "unlink", "symlink", "menu", "exit", "stat", "chmod", "touch", "chown", "chgrp", "0"};
+int (*function[]) (char*) = {make_dir, myrmdir, mycd, myls, mypwd, mycreat, mylink, myunlink, mysymlink, mymenu, myexit, mystat, mychmod, mytouch, mychown, mychgrp};
+
 int main()
 {
+  int i, cmd;
+  char line[128], cname[64];
+
+  init();
+  //mount_root();
+
+  while(1)
+  {
+    printf("P%d running: ", running->pid);
+    printf("command: ");
+    fgets(line, 128, stdin);
+    
+    line[strlen(line) - 1] = 0; //get rid of /r at the end
+    sscanf(line, "%s %s %64c", cname, pathname, parameter);
+    printf("%s %s %64c", cname, pathname, parameter);
+    
+    for (i = 0; i < 18; ++i)  
+    {
+      if (!strcmp(cname, commands[i]))
+      {
+          (*function[i])(parameter);
+      }
+    }
+  }
 }
