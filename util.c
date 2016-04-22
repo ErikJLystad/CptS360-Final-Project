@@ -39,16 +39,16 @@ void tokenize(char* name)
   char *token = strtok(name, "/");
   while(token != 0)
   {
-    pathname[i] = token;
+    tokenized_pathname[i] = token;
     i++;
     token = strtok(0, "/");
   }
 
-  printf("\nPathname has been split\n");
+  printf("\npathname has been split\n");
   i = 0;
-  while(pathname[i] != 0)
+  while(tokenized_pathname[i] != 0)
   {
-    printf("pathname[%d] = %s\n", i, pathname[i]);
+    printf("pathname[%d] = %s\n", i, tokenized_pathname[i]);
     i++;
   }
 }
@@ -69,12 +69,14 @@ int getino(int *dev, char *pathname) //int ino = getino(&dev, pathname) essentia
     if (inumber == 0) //: can't find name[i], BOMB OUT!
     {
       printf("inode could not be found\n");
-      exit(1);
+      return 0;
     }
   }
    return inumber;
 }
 
+//search for a file by name starting with mip
+//if found, return inumber. if not, return 0.
 int search(MINODE *mip, char *name)
 {
   int i;
@@ -133,7 +135,7 @@ int findino(MINODE *mip, int *myino, int *parentino)
   return *myino;
 }
 
-MINODE *iget(int dev, int ino)
+MINODE* iget(int dev, int ino)
 {
   MINODE *mip;
   //search MINODE array for inode

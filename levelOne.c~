@@ -8,7 +8,7 @@ creat
 touch
 stat
 
-MEGANS SHIT CUZ SHE SO PERSNICKETTY:
+MEGAN:
 mkdir
 ls
 pwd
@@ -23,6 +23,7 @@ int mount_root()  // mount root file system, establish / and CWDs
   
   printf("Beggining mount process for %s\n", diskName);
 
+<<<<<<< HEAD
   //open device for RW
   fd = open("mydisk", O_RDWR);
   if(fd < 0)
@@ -147,3 +148,9 @@ int mytouch()
   mip = iget(dev, ino);
 
 }
+=======
+
+ 
+
+
+>>>>>>> master

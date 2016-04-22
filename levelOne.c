@@ -8,7 +8,7 @@ creat
 touch
 stat
 
-MEGANS SHIT CUZ SHE SO PERSNICKETTY:
+MEGAN:
 mkdir
 ls
 pwd
