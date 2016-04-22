@@ -119,10 +119,10 @@ int iput(MINODE *mip)
     int offset = (mip->ino -1) % 8;
     
     //read block into buf
-    getblock(fd, block, buf);
+    get_block(fd, block, buf);
     ip = (INODE *)buf + offset;
     *ip = mip->INODE;
-    putblock(fd, block, buf);
+    put_block(fd, block, buf);
   }
 }
 

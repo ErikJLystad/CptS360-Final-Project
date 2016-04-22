@@ -18,7 +18,7 @@ int fd;
 
 MINODE minode[NMINODES];
 
-PROC *running; //pointer to PROC structure of current running process
+PROC *running;  //pointer to PROC structure of current running process
 MINODE *root;   //pointer to root inode
 
 int get_block(int fd, int blk, char buf[ ]) //credit to KCW
