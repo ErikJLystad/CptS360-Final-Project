@@ -39,16 +39,16 @@ void tokenize(char* name)
   char *token = strtok(name, "/");
   while(token != 0)
   {
-    pathname[i] = token;
+    tokenized_pathname[i] = token;
     i++;
     token = strtok(0, "/");
   }
 
-  printf("\nPathname has been split\n");
+  printf("\npathname has been split\n");
   i = 0;
-  while(pathname[i] != 0)
+  while(tokenized_pathname[i] != 0)
   {
-    printf("pathname[%d] = %s\n", i, pathname[i]);
+    printf("pathname[%d] = %s\n", i, tokenized_pathname[i]);
     i++;
   }
 }
