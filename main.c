@@ -1,3 +1,9 @@
+//Computer Science 360, Washington State University
+//Megan McPherson and Erik Lystad, April 2016
+
+//Erik: mount_root, rmdir, cd, creat, unlink, stat, touch, close, write
+//Megan: mkdir, ls, pwd, link, symlink, chmod, open, read, lseek, cp
+
 #include "type.h"
 
 typedef unsigned int   u32;
@@ -13,6 +19,10 @@ int nblocks, ninodes, bmap, imap, iblock;
 char pathname[256], parameter[256], diskName[256];
 char *tokenized_pathname[256];
 int num_tokens;
+
+int imap, bmap;  // IMAP and BMAP block number
+int ninodes, nblocks, nfreeInodes, nfreeBlocks;
+
 
 int get_block(int fd, int blk, char buffer[ ]) //credit to KCW
 {
@@ -59,6 +69,168 @@ int tokenize(char* name)
   return 1;
 }
 
+int get_bit(char *buffer, int index) //get the value of a bit in a block
+{
+  int byte = index / 8;
+  int bit = index % 8;
+  
+  if(buffer[byte] & (1 << bit))
+    return 1;
+  else
+    return 0;
+}
+
+int set_bit(char *buffer, int index, int value) //set the value of a bit in a block
+{
+  int byte = index / 8;
+  int bit = index % 8;
+
+  if(value == 1)
+    buffer[byte] |= (1 << bit);
+  else
+    buffer[byte] &= ~(1 << bit);
+}
+
+int clear_bit(char *buffer, int index)
+{
+  int byte = index / 8;
+  int bit = index % 8;
+  buffer[index] &= ~(1 << bit);
+}
+
+int dec_free_inodes(int dev) //when an inode is allocated, update free_inodes in SUPER and GD blocks
+{
+  char buffer[BLKSIZE];
+
+  //1. update super block
+  get_block(dev, 1, buffer);
+  sp = (SUPER *)buffer;
+  sp->s_free_inodes_count--;
+  put_block(dev, 1, buffer);
+
+  //2. update group descriptor block
+  get_block(dev, 2, buffer);
+  gp = (GD *)buffer;
+  gp->bg_free_inodes_count--;
+  put_block(dev, 2, buffer);
+}
+
+int dec_free_blocks(int dev) //when a block is allocated, update free_inodes in SUPER and GD blocks
+{
+  char buffer[BLKSIZE];
+
+  //1. update super block
+  get_block(dev, 1, buffer);
+  sp = (SUPER *)buffer;
+  sp->s_free_blocks_count--;
+  put_block(dev, 1, buffer);
+
+  //2. update group descriptor block
+  get_block(dev, 2, buffer);
+  gp = (GD *)buffer;
+  gp->bg_free_blocks_count--;
+  put_block(dev, 2, buffer);
+}
+
+int inc_free_inodes(int dev) //when an inode is deallocated, update free_inodes in SUPER and GD blocks
+{
+  char buffer[BLKSIZE];
+
+  //1. update super block
+  get_block(dev, 1, buffer);
+  sp = (SUPER *)buffer;
+  sp->s_free_inodes_count++;
+  put_block(dev, 1, buffer);
+
+  //2. update group descriptor block
+  get_block(dev, 2, buffer);
+  gp = (GD *)buffer;
+  gp->bg_free_inodes_count++;
+  put_block(dev, 2, buffer);
+}
+
+int inc_free_blocks(int dev) //when a block is deallocated, update free_inodes in SUPER and GD blocks
+{
+  char buffer[BLKSIZE];
+
+  //1. update super block
+  get_block(dev, 1, buffer);
+  sp = (SUPER *)buffer;
+  sp->s_free_blocks_count++;
+  put_block(dev, 1, buffer);
+
+  //2. update group descriptor block
+  get_block(dev, 2, buffer);
+  gp = (GD *)buffer;
+  gp->bg_free_blocks_count++;
+  put_block(dev, 2, buffer);
+}
+
+int ialloc(int dev) //allocate a free inode, return its inumber
+{
+  int  i;
+  char buffer[BLKSIZE];
+  
+  // get the imap block
+  get_block(dev, imap, buffer);
+  printf("ialloc: imap = %d, ninodes = %d\n", imap, ninodes);
+
+  for (i=0; i < ninodes; i++) //find the first free inode spot
+  {
+    if (get_bit(buffer, i) == 0) //if the bit at this buf location is 0, it's free
+    {
+       set_bit(buffer, i, 1);
+       dec_free_inodes(dev); //free inodes--, update SUPER and GD blocks
+       put_block(dev, imap, buffer); //write imap block back to device
+
+       return i + 1;
+    }
+  }
+  printf("ialloc(): no more free inodes\n");
+  return 0;
+}
+
+int balloc(int dev) //allocate a free data block, return its bnumber
+{
+  int  i;
+  char buffer[BLKSIZE];
+
+  //get the bmap block
+  get_block(dev, bmap, buffer);
+  
+  for(i = 0; i < nblocks; i++) //look through all blocks
+  {
+    if(get_bit(buffer, i) == 0) //if this block is free
+    {
+      set_bit(buffer, i, 1); //make it not free
+      dec_free_blocks(dev); //update super and gd blocks
+      put_block(dev, nblocks, buffer); //write block back to device
+      return i;
+    }
+  }
+  return 0;
+}
+
+idealloc(int dev, int inode_index) //deallocates an inode number
+{
+  char buffer[BLKSIZE];
+
+  get_block(dev, imap, buffer); //get the imap block
+  set_bit(buffer, inode_index - 1, 0); //tell it to be free
+  inc_free_inodes(dev); //update super and gd blocks
+  put_block(dev, imap, buffer); //write it back to the device
+}
+
+bdealloc(int dev, int block_index) //deallocates an block number
+{
+  char buffer[BLKSIZE];
+
+  get_block(dev, bmap, buffer); //get the imap block
+  set_bit(buffer, block_index, 0); //tell it to be free
+  inc_free_blocks(dev); //update super and gd blocks
+  put_block(dev, bmap, buffer); //write it back to the device
+}
+
 int getino(int *device, char *pathname) //int ino = getino(&dev, pathname) essentially returns (dev,ino) of a pathname
 {
   int i = 0, inumber, blocknumber;
@@ -88,7 +260,7 @@ int getino(int *device, char *pathname) //int ino = getino(&dev, pathname) essen
 //if found, return inumber. if not, return 0.
 int search(MINODE *mip, char *name)
 {
-  int i;
+  int i, block_position = 0;
   char *copy, sbuf[BLKSIZE];
 
   printf("search: name = %s mip->name = %s\n", name, mip->name);
@@ -105,14 +277,14 @@ int search(MINODE *mip, char *name)
     dp = (DIR*)sbuf;
     copy = sbuf;
 
-    while(copy < sbuf + BLKSIZE)
+    while(block_position < BLKSIZE)
     {
-       
        if(strcmp(dp->name, name) == 0)
          return dp->inode;
 
        copy += dp->rec_len;
        dp = (DIR *)copy;
+       block_position += dp->rec_len;
     }
   }
   return 0;
@@ -290,23 +462,26 @@ int make_dir(char *path) //returns 1 on success, 0 on failure
   MINODE *mip, *parent_mip;
   int parent_ino;
   char *parent, *child, *temp_path;
-  printf("path = %s\n");
+  printf("path = %s\n", path);
 
   if(pathname[0] == '/') //if pathname is absolute
   {
     mip = root; //start at root minode
     dev = root->dev;
-    printf("dev = %d\n");
+    printf("dev = %d\n", dev);
   }
   else //if pathname is relative
   {
     mip = running->cwd; //start at running proc's cwd
     dev = running->cwd->dev;
-    printf("dev = %d\n");
+    printf("dev = %d\n", dev);
   }
 
   temp_path = strdup(path); //prepare for destruction 
   parent = dirname(temp_path);
+  if(strcmp(parent, ".") == 0)
+    parent = "/";
+
   temp_path = strdup(path);
   child = basename(temp_path);
 
@@ -325,7 +500,7 @@ int make_dir(char *path) //returns 1 on success, 0 on failure
   }
      
   //verify child doesn't already exist in parent
-  if(search(parent_mip, child) == 0)
+  if(search(parent_mip, child) != 0)
   {
     printf("mkdir: directory already exists\n");
     return 0;
@@ -387,8 +562,8 @@ int mymkdir(MINODE *parent_mip, char *name)
 int create_dir_entry(MINODE *parent, int inumber, char *name)
 {
   char buffer[BLKSIZE], *string_position;
-  int ideal_length, i = 0, block, remaining_space, new_dir_length;
-  int block_position = 0;
+  int ideal_length = 0, i = 0, block, remaining_space = 0, new_dir_length;
+  int block_position = 0, new_block;
   DIR *dir;
   
   new_dir_length = 4 * ((8 + strlen(name) + 3) / 4);
@@ -403,13 +578,22 @@ int create_dir_entry(MINODE *parent, int inumber, char *name)
     dir = (DIR *)buffer;
     string_position = buffer;
 
+    printf("create_dir_entry: dir->name = %s\n", dir->name);
     //step to last entry in data block
     block = parent->INODE.i_block[i];
+    printf("block = %d\n", block);
     printf("stepping to last entry in data block %d\n", block);
+    printf("block position: %d, BLKSIZE: %d\n", block_position, BLKSIZE);
+    
+    //THIS WHERE IT HANGS UGHH
     while(block_position < BLKSIZE);
     {
+      printf("hello\n");
       ideal_length = 4 * ((8 + dir->name_len + 3) / 4); //multiples of 4
+      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
       remaining_space = dir->rec_len + ideal_length;
+
+      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
 
       //print dir entries to see what they are
       printf("%s\n", dir->name);
@@ -445,7 +629,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name)
     } 
   }
   //if we've gotten here, there's no space in existing data blocks
-  int new_block = balloc(dev); //allocate a new block
+  new_block = balloc(dev); //allocate a new block
   parent->INODE.i_size += BLKSIZE;
 
   //enter the new dir as the first entry in the new block
@@ -552,6 +736,7 @@ int mount_root()  // mount root file system, establish / and CWDs
   printf("magic: %d bmap: %d imap: %d iblock: %d\n",
     sp->s_magic, gp->bg_block_bitmap, gp->bg_inode_bitmap, gp->bg_inode_table);
   
+
   
   //initialize entry in mount_table
   mount_table[0].busy = 0;
@@ -568,6 +753,11 @@ int mount_root()  // mount root file system, establish / and CWDs
   printf("root %s has been mounted.\n", root->name);
   printf("nblocks: %d    free blocks: %d \nnum inodes: %d    free inodes: %d\n",
     sp->s_blocks_count, gp->bg_free_blocks_count, sp->s_inodes_count, gp->bg_free_inodes_count);
+
+  //initialize globals
+  imap = gp->bg_inode_bitmap;
+  bmap = gp->bg_block_bitmap;
+  ninodes = sp->s_blocks_count;
 
   //Let cwd of both P0 and P1 point at the root minode (refCount=3)
   proc[0].cwd = root; 
@@ -708,8 +898,13 @@ int mytouch(char *path)
   return;
 }
 
-int mypwd(char *path){}
+int mypwd(char *path)
+{
+  printf("%s\n", running->cwd->name);
+}
+
 int mycreat(char *path){}
+
 int mylink(char *path){}
 int myunlink(char *path){}
 int mysymlink(char *path){}
