@@ -725,7 +725,11 @@ int main(int argc, char *argv[])
 
   while(1)
   {
-    printf("P%d running: ", running->pid);
+    //reset pathname and parameter each time
+    memset(pathname, 0, 64);
+    memset(parameter,0, 64); 
+
+    printf("P%d running, ", running->pid);
     printf("command: ");
     fgets(line, 128, stdin);
     
@@ -737,7 +741,7 @@ int main(int argc, char *argv[])
     {
       if (!strcmp(cname, commands[i]))
       {
-          (*function[i])(parameter);
+          (*function[i])(pathname);
           break;
       }
     }
