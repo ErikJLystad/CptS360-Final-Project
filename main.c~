@@ -1,3 +1,9 @@
+//Computer Science 360, Washington State University
+//Megan McPherson and Erik Lystad, April 2016
+
+//Erik: mount_root*, rmdir, cd*, creat, unlink, stat, touch*, close, write
+//Megan: mkdir*, ls*, pwd*, link, symlink, chmod, open, read, lseek, cp
+
 #include "type.h"
 
 typedef unsigned int   u32;
@@ -13,6 +19,10 @@ int nblocks, ninodes, bmap, imap, iblock;
 char pathname[256], parameter[256], diskName[256];
 char *tokenized_pathname[256];
 int num_tokens;
+
+int imap, bmap;  // IMAP and BMAP block number
+int ninodes, nblocks, nfreeInodes, nfreeBlocks;
+
 
 int get_block(int fd, int blk, char buffer[ ]) //credit to KCW
 {
@@ -31,17 +41,17 @@ int tokenize(char* name)
   int i = 0;
   char *token;
 
-  printf("tokenize: name = %s\n", name);
+  //printf("tokenize: name = %s\n", name);
 
   if(strcmp(name, "/") == 0)
   {
-    printf("tokenize: strcmp returned 0\n");
+    //printf("tokenize: strcmp returned 0\n");
     tokenized_pathname[0] = "/";
     num_tokens = 1;
     return 1;
   }
   token = strtok(name, "/");
-  printf("tokenize: token = %s\n", token);
+  //printf("tokenize: token = %s\n", token);
   while(token != NULL)
   {
     tokenized_pathname[i] = token;
@@ -49,14 +59,176 @@ int tokenize(char* name)
     token = strtok(0, "/");
   }
   num_tokens = i;
-  printf("pathname has been split\n");
+  //printf("pathname has been split\n");
   i = 0;
   while(tokenized_pathname[i] != 0)
   {
-    printf("pathname[%d] = %s\n", i, tokenized_pathname[i]);
+    //printf("tokenized_pathname[%d] = %s\n", i, tokenized_pathname[i]);
     i++;
   }
   return 1;
+}
+
+int get_bit(char *buffer, int index) //get the value of a bit in a block
+{
+  int byte = index / 8;
+  int bit = index % 8;
+  
+  if(buffer[byte] & (1 << bit))
+    return 1;
+  else
+    return 0;
+}
+
+int set_bit(char *buffer, int index, int value) //set the value of a bit in a block
+{
+  int byte = index / 8;
+  int bit = index % 8;
+
+  if(value == 1)
+    buffer[byte] |= (1 << bit);
+  else
+    buffer[byte] &= ~(1 << bit);
+}
+
+int clear_bit(char *buffer, int index)
+{
+  int byte = index / 8;
+  int bit = index % 8;
+  buffer[index] &= ~(1 << bit);
+}
+
+int dec_free_inodes(int dev) //when an inode is allocated, update free_inodes in SUPER and GD blocks
+{
+  char buffer[BLKSIZE];
+
+  //1. update super block
+  get_block(dev, 1, buffer);
+  sp = (SUPER *)buffer;
+  sp->s_free_inodes_count--;
+  put_block(dev, 1, buffer);
+
+  //2. update group descriptor block
+  get_block(dev, 2, buffer);
+  gp = (GD *)buffer;
+  gp->bg_free_inodes_count--;
+  put_block(dev, 2, buffer);
+}
+
+int dec_free_blocks(int dev) //when a block is allocated, update free_inodes in SUPER and GD blocks
+{
+  char buffer[BLKSIZE];
+
+  //1. update super block
+  get_block(dev, 1, buffer);
+  sp = (SUPER *)buffer;
+  sp->s_free_blocks_count--;
+  put_block(dev, 1, buffer);
+
+  //2. update group descriptor block
+  get_block(dev, 2, buffer);
+  gp = (GD *)buffer;
+  gp->bg_free_blocks_count--;
+  put_block(dev, 2, buffer);
+}
+
+int inc_free_inodes(int dev) //when an inode is deallocated, update free_inodes in SUPER and GD blocks
+{
+  char buffer[BLKSIZE];
+
+  //1. update super block
+  get_block(dev, 1, buffer);
+  sp = (SUPER *)buffer;
+  sp->s_free_inodes_count++;
+  put_block(dev, 1, buffer);
+
+  //2. update group descriptor block
+  get_block(dev, 2, buffer);
+  gp = (GD *)buffer;
+  gp->bg_free_inodes_count++;
+  put_block(dev, 2, buffer);
+}
+
+int inc_free_blocks(int dev) //when a block is deallocated, update free_inodes in SUPER and GD blocks
+{
+  char buffer[BLKSIZE];
+
+  //1. update super block
+  get_block(dev, 1, buffer);
+  sp = (SUPER *)buffer;
+  sp->s_free_blocks_count++;
+  put_block(dev, 1, buffer);
+
+  //2. update group descriptor block
+  get_block(dev, 2, buffer);
+  gp = (GD *)buffer;
+  gp->bg_free_blocks_count++;
+  put_block(dev, 2, buffer);
+}
+
+int ialloc(int dev) //allocate a free inode, return its inumber
+{
+  int  i;
+  char buffer[BLKSIZE];
+  
+  // get the imap block
+  get_block(dev, imap, buffer);
+  printf("ialloc: imap = %d, ninodes = %d\n", imap, ninodes);
+
+  for (i=0; i < ninodes; i++) //find the first free inode spot
+  {
+    if (get_bit(buffer, i) == 0) //if the bit at this buf location is 0, it's free
+    {
+       set_bit(buffer, i, 1);
+       dec_free_inodes(dev); //free inodes--, update SUPER and GD blocks
+       put_block(dev, imap, buffer); //write imap block back to device
+
+       return i + 1;
+    }
+  }
+  printf("ialloc(): no more free inodes\n");
+  return 0;
+}
+
+int balloc(int dev) //allocate a free data block, return its bnumber
+{
+  int  i;
+  char buffer[BLKSIZE];
+
+  //get the bmap block
+  get_block(dev, bmap, buffer);
+  
+  for(i = 0; i < nblocks; i++) //look through all blocks
+  {
+    if(get_bit(buffer, i) == 0) //if this block is free
+    {
+      set_bit(buffer, i, 1); //make it not free
+      dec_free_blocks(dev); //update super and gd blocks
+      put_block(dev, nblocks, buffer); //write block back to device
+      return i;
+    }
+  }
+  return 0;
+}
+
+idealloc(int dev, int inode_index) //deallocates an inode number
+{
+  char buffer[BLKSIZE];
+
+  get_block(dev, imap, buffer); //get the imap block
+  set_bit(buffer, inode_index - 1, 0); //tell it to be free
+  inc_free_inodes(dev); //update super and gd blocks
+  put_block(dev, imap, buffer); //write it back to the device
+}
+
+bdealloc(int dev, int block_index) //deallocates an block number
+{
+  char buffer[BLKSIZE];
+
+  get_block(dev, bmap, buffer); //get the imap block
+  set_bit(buffer, block_index, 0); //tell it to be free
+  inc_free_blocks(dev); //update super and gd blocks
+  put_block(dev, bmap, buffer); //write it back to the device
 }
 
 int getino(int *device, char *pathname) //int ino = getino(&dev, pathname) essentially returns (dev,ino) of a pathname
@@ -69,14 +241,10 @@ int getino(int *device, char *pathname) //int ino = getino(&dev, pathname) essen
     *device = running->cwd->dev; //running is a pointer to PROC of current running process.
 
   tokenize(pathname);
-  printf("getino: num_tokens = %d\n", num_tokens);
 
   //2. find and return ino
   for (i = 0; i < num_tokens; i++) //n is number of steps in pathname
   {
-    printf("getino: about to call search()\n");
-    printf("root->name = %s\n", root->name);
-
     inumber = search(root, tokenized_pathname[i]);  
     if (inumber < 1) //: can't find name[i], BOMB OUT!
     {
@@ -92,7 +260,7 @@ int getino(int *device, char *pathname) //int ino = getino(&dev, pathname) essen
 //if found, return inumber. if not, return 0.
 int search(MINODE *mip, char *name)
 {
-  int i;
+  int i, block_position = 0;
   char *copy, sbuf[BLKSIZE];
 
   printf("search: name = %s mip->name = %s\n", name, mip->name);
@@ -109,16 +277,19 @@ int search(MINODE *mip, char *name)
     dp = (DIR*)sbuf;
     copy = sbuf;
 
-    printf("dp->name = %s\n", dp->name);
-    /*while(copy < sbuf + BLKSIZE)
+    while(block_position < BLKSIZE)
     {
-       
        if(strcmp(dp->name, name) == 0)
          return dp->inode;
 
        copy += dp->rec_len;
        dp = (DIR *)copy;
-    }*/
+       block_position += dp->rec_len;
+
+       printf("IN WHILE LOOP...block_position = %d... BLKSIZE = %d\n",block_position, BLKSIZE);
+       printf("copy = %s...dp->name = %s...dp->rec_len = %d...\n", copy, dp->name, dp->rec_len);
+    }
+    printf("successfully escaped search while statement\n");
   }
   return 0;
 }
@@ -180,10 +351,10 @@ MINODE* iget(int dev, int ino)
 
   //read blk into buf[]
   get_block(dev, blk, buffer); 
-  ip = (INODE *)buffer + offset; //ip already defined in types.h
+  ip = (INODE *)buffer + offset; 
   printf("ip->i_mode: %d, %d, %d, %d\n", ip->i_mode, ino, dev, blk);
   mip->INODE = *ip;
-  printf("is dir? %d\n", is_dir(mip));
+  printf("\nis dir? %d\n", is_dir(mip));
 
   //initialize fields of *mip
   mip->dev = dev;
@@ -257,7 +428,7 @@ int init() //initialize level 1 data structures
 
   mount_root();
 
-  printf("creating P0\n");
+  printf("\ncreating P0\n");
   p = running = &proc[0];
   p->status = BUSY;
   p->uid = 0; 
@@ -295,23 +466,26 @@ int make_dir(char *path) //returns 1 on success, 0 on failure
   MINODE *mip, *parent_mip;
   int parent_ino;
   char *parent, *child, *temp_path;
-  printf("path = %s\n");
+  printf("path = %s\n", path);
 
   if(pathname[0] == '/') //if pathname is absolute
   {
     mip = root; //start at root minode
     dev = root->dev;
-    printf("dev = %d\n");
+    printf("dev = %d\n", dev);
   }
   else //if pathname is relative
   {
     mip = running->cwd; //start at running proc's cwd
     dev = running->cwd->dev;
-    printf("dev = %d\n");
+    printf("dev = %d\n", dev);
   }
 
   temp_path = strdup(path); //prepare for destruction 
   parent = dirname(temp_path);
+  if(strcmp(parent, ".") == 0)
+    parent = "/";
+
   temp_path = strdup(path);
   child = basename(temp_path);
 
@@ -330,7 +504,7 @@ int make_dir(char *path) //returns 1 on success, 0 on failure
   }
      
   //verify child doesn't already exist in parent
-  if(search(parent_mip, child) == 0)
+  if(search(parent_mip, child) != 0)
   {
     printf("mkdir: directory already exists\n");
     return 0;
@@ -351,6 +525,8 @@ int mymkdir(MINODE *parent_mip, char *name)
   INODE *ip;
   char buffer[BLKSIZE];
   int i;
+
+  printf("Entering mykdir() successfully....");
 
   //allocate inode and disk blocks for new directory
   int inumber = ialloc(dev);
@@ -392,8 +568,8 @@ int mymkdir(MINODE *parent_mip, char *name)
 int create_dir_entry(MINODE *parent, int inumber, char *name)
 {
   char buffer[BLKSIZE], *string_position;
-  int ideal_length, i = 0, block, remaining_space, new_dir_length;
-  int block_position = 0;
+  int ideal_length = 0, i = 0, block, remaining_space = 0, new_dir_length;
+  int block_position = 0, new_block;
   DIR *dir;
   
   new_dir_length = 4 * ((8 + strlen(name) + 3) / 4);
@@ -408,13 +584,22 @@ int create_dir_entry(MINODE *parent, int inumber, char *name)
     dir = (DIR *)buffer;
     string_position = buffer;
 
+    printf("create_dir_entry: dir->name = %s\n", dir->name);
     //step to last entry in data block
     block = parent->INODE.i_block[i];
+    printf("block = %d\n", block);
     printf("stepping to last entry in data block %d\n", block);
+    printf("block position: %d, BLKSIZE: %d\n", block_position, BLKSIZE);
+    
+    //THIS WHERE IT HANGS UGHH
     while(block_position < BLKSIZE);
     {
+      printf("hello\n");
       ideal_length = 4 * ((8 + dir->name_len + 3) / 4); //multiples of 4
+      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
       remaining_space = dir->rec_len + ideal_length;
+
+      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
 
       //print dir entries to see what they are
       printf("%s\n", dir->name);
@@ -450,7 +635,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name)
     } 
   }
   //if we've gotten here, there's no space in existing data blocks
-  int new_block = balloc(dev); //allocate a new block
+  new_block = balloc(dev); //allocate a new block
   parent->INODE.i_size += BLKSIZE;
 
   //enter the new dir as the first entry in the new block
@@ -481,27 +666,25 @@ int myls(char *path)
     path = mip->name;
     printf("path = %s\n", path);
   }
-    if(path[0] == '/') //if path is absolute
-      dev = root->dev;
+  if(path[0] == '/') //if path is absolute
+    dev = root->dev;
     
-    printf("dev = %d\n", dev);
+  printf("dev = %d\n", dev);
 
-    inumber = getino(&dev, path); //get this specific path
-    printf("inumber = %d\n", inumber);
+  inumber = getino(&dev, path); //get this specific path
 
-    if(inumber == 0 || inumber == -1)
-    {
-      printf("ls: could not find directory\n");
-      return 0;
-    }
+  if(inumber == 0 || inumber == -1)
+  {
+    printf("ls: could not find directory\n");
+    return 0;
+  }
 
-    mip = iget(dev, inumber);
-    printf("ls: mip->name = %s\n", mip->name);
-    if(is_dir(mip) == 0)
-    {
-      printf("ls: %s is not a directory\n", path);
-      return 0;
-    }
+  mip = iget(dev, inumber);
+  if(is_dir(mip) == 0)
+  {
+    printf("ls: %s is not a directory\n", path);
+    return 0;
+  }
 
     //first 12 data blocks
     for(i = 0; i < 12; i++)
@@ -511,7 +694,6 @@ int myls(char *path)
 
       bnumber = get_block(dev, mip->INODE.i_block[i], buffer); 
       dir = (DIR *)buffer;
-      printf("ls: dir->name = %s\n", dir->name);
 
       block_position = 0;
       while(block_position < BLKSIZE) //print all dir entries in the block
@@ -538,7 +720,6 @@ int mount_root()  // mount root file system, establish / and CWDs
 
   //open device for RW
   dev = open(diskName, O_RDWR);
-  printf("mount_root(): dev = %d\n", dev);
   if(dev < 0)
   {
     printf("Could not open %s\n", diskName);
@@ -561,6 +742,7 @@ int mount_root()  // mount root file system, establish / and CWDs
   printf("magic: %d bmap: %d imap: %d iblock: %d\n",
     sp->s_magic, gp->bg_block_bitmap, gp->bg_inode_bitmap, gp->bg_inode_table);
   
+
   
   //initialize entry in mount_table
   mount_table[0].busy = 0;
@@ -575,8 +757,13 @@ int mount_root()  // mount root file system, establish / and CWDs
 
   //root = mount_table[0].mounted_inode;
   printf("root %s has been mounted.\n", root->name);
-  printf("nblocks: %d free blocks: %d num inodes: %d free inodes: %d\n",
+  printf("nblocks: %d    free blocks: %d \nnum inodes: %d    free inodes: %d\n",
     sp->s_blocks_count, gp->bg_free_blocks_count, sp->s_inodes_count, gp->bg_free_inodes_count);
+
+  //initialize globals
+  imap = gp->bg_inode_bitmap;
+  bmap = gp->bg_block_bitmap;
+  ninodes = sp->s_blocks_count;
 
   //Let cwd of both P0 and P1 point at the root minode (refCount=3)
   proc[0].cwd = root; 
@@ -644,7 +831,7 @@ int myrmdir()
     bdealloc(mip->dev, mip->INODE.i_block[i]); //deallocate the blocks
   }
   idealloc(mip->dev, mip->ino); //Now deallocate the inode
-  iput(mip); //(which clears mip->refCount = 0); //clear mip-> refCount
+  iput(mip); //clear mip-> refCount
   
   parentIno = getino(&dev, parentPath); //get the parent inode
 
@@ -690,8 +877,9 @@ int mycd(char *path)
     if(ino == 0) //if the ino was never found
       return 0; //return unsuccessfull
 
-    startPoint = iget(&dev, ino); //get the MINODE pointer
-    running->cwd = startPoint; //set the cwd to
+    startPoint = iget(dev, ino); //get the MINODE pointer
+    strcpy(startPoint->name, path); //add the name to the MINODE pointer
+    running->cwd = startPoint; //set the cwd to the MINODE pointer
   }
 
   return 1;
@@ -716,10 +904,28 @@ int mytouch(char *path)
   return;
 }
 
-int mypwd(char *path){}
+int mypwd(char *path)
+{
+  printf("%s\n", running->cwd->name);
+}
+
+int myunlink(char *path)
+{
+  int ino;
+  MINODE *mip;
+  INODE *pathInode;
+
+  //1. Get the pathnames INODE
+  ino = getino(&dev, path);
+  mip = iget(dev, ino);
+  pathInode = mip->INODE;
+
+  //2. Check that it is a file
+  if(is_file())
+}
+
 int mycreat(char *path){}
 int mylink(char *path){}
-int myunlink(char *path){}
 int mysymlink(char *path){}
 int mymenu(){}
 int myexit(){}
@@ -753,7 +959,11 @@ int main(int argc, char *argv[])
 
   while(1)
   {
-    printf("P%d running: ", running->pid);
+    //reset pathname and parameter each time
+    memset(pathname, 0, 64);
+    memset(parameter,0, 64); 
+
+    printf("P%d running, ", running->pid);
     printf("command: ");
     fgets(line, 128, stdin);
     
@@ -765,7 +975,7 @@ int main(int argc, char *argv[])
     {
       if (!strcmp(cname, commands[i]))
       {
-          (*function[i])(parameter);
+          (*function[i])(pathname);
           break;
       }
     }

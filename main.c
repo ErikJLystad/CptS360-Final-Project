@@ -1,8 +1,8 @@
 //Computer Science 360, Washington State University
 //Megan McPherson and Erik Lystad, April 2016
 
-//Erik: mount_root, rmdir, cd, creat, unlink, stat, touch, close, write
-//Megan: mkdir, ls, pwd, link, symlink, chmod, open, read, lseek, cp
+//Erik: mount_root*, rmdir, cd*, creat, unlink, stat, touch*, close, write
+//Megan: mkdir*, ls*, pwd*, link, symlink, chmod, open, read, lseek, cp
 
 #include "type.h"
 
@@ -285,7 +285,11 @@ int search(MINODE *mip, char *name)
        copy += dp->rec_len;
        dp = (DIR *)copy;
        block_position += dp->rec_len;
+
+       printf("IN WHILE LOOP...block_position = %d... BLKSIZE = %d\n",block_position, BLKSIZE);
+       printf("copy = %s...dp->name = %s...dp->rec_len = %d...\n", copy, dp->name, dp->rec_len);
     }
+    printf("successfully escaped search while statement\n");
   }
   return 0;
 }
@@ -521,6 +525,8 @@ int mymkdir(MINODE *parent_mip, char *name)
   INODE *ip;
   char buffer[BLKSIZE];
   int i;
+
+  printf("Entering mykdir() successfully....");
 
   //allocate inode and disk blocks for new directory
   int inumber = ialloc(dev);
@@ -825,7 +831,7 @@ int myrmdir()
     bdealloc(mip->dev, mip->INODE.i_block[i]); //deallocate the blocks
   }
   idealloc(mip->dev, mip->ino); //Now deallocate the inode
-  iput(mip); //(which clears mip->refCount = 0); //clear mip-> refCount
+  iput(mip); //clear mip-> refCount
   
   parentIno = getino(&dev, parentPath); //get the parent inode
 
@@ -903,10 +909,21 @@ int mypwd(char *path)
   printf("%s\n", running->cwd->name);
 }
 
-int mycreat(char *path){}
+int myunlink(char *path)
+{
+  int ino;
+  MINODE *mip;
 
+  //1. Get the pathnames INODE
+  ino = getino(&dev, path);
+  mip = iget(dev, ino);
+
+  //2. Check that it is a file
+  if((mip->INODE.i_mode & 0x4000) == 0x4000)
+}
+
+int mycreat(char *path){}
 int mylink(char *path){}
-int myunlink(char *path){}
 int mysymlink(char *path){}
 int mymenu(){}
 int myexit(){}
