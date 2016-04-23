@@ -653,20 +653,19 @@ int myrmdir()
   //remove child entry from parent directory
   rm_child(pip, tokenized_pathname[num_tokens]);
 
-  //decrement pips link count
-  pip->INODE.i_links_count--;
+  pip->INODE.i_links_count--; //decrement pips link count
+
   //update pips atime and mtime
-  mytouch(pathname);
-  //mark pip as dirty
-  pip->dirty = 1;
-  //clear refCount
-  iput(pip);
+  pip->INODE.i_atime = time(NULL);
+  pip->INODE.i_mtime = time(NULL);
+  
+  pip->dirty = 1; //mark pip as dirty
+  
+  iput(pip); //clear refCount
   
   return 1;
 
 }
-
-
 
 int rm_child(MINODE *parent, char *name)
 {
@@ -675,19 +674,48 @@ int rm_child(MINODE *parent, char *name)
   
 }
 
-int mytouch()
+int mycd(char *path)
+{
+  int ino;
+  MINODE *startPoint;
+
+  if(strcmp(path, "") == 0) //if there is no path passed in
+  {
+    running->cwd = root; //set the cwd to the root
+  }
+  else //if path was passed
+  {
+    ino = getino(&dev, path); //get the ino 
+
+    if(ino == 0) //if the ino was never found
+      return 0; //return unsuccessfull
+
+    startPoint = iget(&dev, ino); //get the MINODE pointer
+    running->cwd = startPoint; //set the cwd to
+  }
+
+  return 1;
+}
+
+int mytouch(char *path)
 {
   MINODE *mip;
   int ino;
 
-  //get the inumber of the pathname
-  ino = getino(&dev, pathname);
-  //get the minode[] pointer
-  mip = iget(dev, ino);
+  ino = getino(&dev, path); //get the inumber of the pathname
+  mip = iget(dev, ino);//get the minode[] pointer
 
+  //update the inodes atime and mtime
+  mip->INODE.i_atime = time(NULL);
+  mip->INODE.i_mtime = time(NULL);
+  
+  mip->dirty = 1; //mark that the inode ahs been updated
+
+  iput(mip);
+
+  return;
 }
 
-int mycd(char * path){}
 int mypwd(char *path){}
 int mycreat(char *path){}
 int mylink(char *path){}
