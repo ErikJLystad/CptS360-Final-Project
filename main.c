@@ -31,17 +31,17 @@ int tokenize(char* name)
   int i = 0;
   char *token;
 
-  printf("tokenize: name = %s\n", name);
+  //printf("tokenize: name = %s\n", name);
 
   if(strcmp(name, "/") == 0)
   {
-    printf("tokenize: strcmp returned 0\n");
+    //printf("tokenize: strcmp returned 0\n");
     tokenized_pathname[0] = "/";
     num_tokens = 1;
     return 1;
   }
   token = strtok(name, "/");
-  printf("tokenize: token = %s\n", token);
+  //printf("tokenize: token = %s\n", token);
   while(token != NULL)
   {
     tokenized_pathname[i] = token;
@@ -49,11 +49,11 @@ int tokenize(char* name)
     token = strtok(0, "/");
   }
   num_tokens = i;
-  printf("pathname has been split\n");
+  //printf("pathname has been split\n");
   i = 0;
   while(tokenized_pathname[i] != 0)
   {
-    printf("pathname[%d] = %s\n", i, tokenized_pathname[i]);
+    //printf("tokenized_pathname[%d] = %s\n", i, tokenized_pathname[i]);
     i++;
   }
   return 1;
@@ -69,14 +69,10 @@ int getino(int *device, char *pathname) //int ino = getino(&dev, pathname) essen
     *device = running->cwd->dev; //running is a pointer to PROC of current running process.
 
   tokenize(pathname);
-  printf("getino: num_tokens = %d\n", num_tokens);
 
   //2. find and return ino
   for (i = 0; i < num_tokens; i++) //n is number of steps in pathname
   {
-    printf("getino: about to call search()\n");
-    printf("root->name = %s\n", root->name);
-
     inumber = search(root, tokenized_pathname[i]);  
     if (inumber < 1) //: can't find name[i], BOMB OUT!
     {
@@ -109,8 +105,7 @@ int search(MINODE *mip, char *name)
     dp = (DIR*)sbuf;
     copy = sbuf;
 
-    printf("dp->name = %s\n", dp->name);
-    /*while(copy < sbuf + BLKSIZE)
+    while(copy < sbuf + BLKSIZE)
     {
        
        if(strcmp(dp->name, name) == 0)
@@ -118,7 +113,7 @@ int search(MINODE *mip, char *name)
 
        copy += dp->rec_len;
        dp = (DIR *)copy;
-    }*/
+    }
   }
   return 0;
 }
@@ -180,10 +175,10 @@ MINODE* iget(int dev, int ino)
 
   //read blk into buf[]
   get_block(dev, blk, buffer); 
-  ip = (INODE *)buffer + offset; //ip already defined in types.h
+  ip = (INODE *)buffer + offset; 
   printf("ip->i_mode: %d, %d, %d, %d\n", ip->i_mode, ino, dev, blk);
   mip->INODE = *ip;
-  printf("is dir? %d\n", is_dir(mip));
+  printf("\nis dir? %d\n", is_dir(mip));
 
   //initialize fields of *mip
   mip->dev = dev;
@@ -257,7 +252,7 @@ int init() //initialize level 1 data structures
 
   mount_root();
 
-  printf("creating P0\n");
+  printf("\ncreating P0\n");
   p = running = &proc[0];
   p->status = BUSY;
   p->uid = 0; 
@@ -481,27 +476,25 @@ int myls(char *path)
     path = mip->name;
     printf("path = %s\n", path);
   }
-    if(path[0] == '/') //if path is absolute
-      dev = root->dev;
+  if(path[0] == '/') //if path is absolute
+    dev = root->dev;
     
-    printf("dev = %d\n", dev);
+  printf("dev = %d\n", dev);
 
-    inumber = getino(&dev, path); //get this specific path
-    printf("inumber = %d\n", inumber);
+  inumber = getino(&dev, path); //get this specific path
 
-    if(inumber == 0 || inumber == -1)
-    {
-      printf("ls: could not find directory\n");
-      return 0;
-    }
+  if(inumber == 0 || inumber == -1)
+  {
+    printf("ls: could not find directory\n");
+    return 0;
+  }
 
-    mip = iget(dev, inumber);
-    printf("ls: mip->name = %s\n", mip->name);
-    if(is_dir(mip) == 0)
-    {
-      printf("ls: %s is not a directory\n", path);
-      return 0;
-    }
+  mip = iget(dev, inumber);
+  if(is_dir(mip) == 0)
+  {
+    printf("ls: %s is not a directory\n", path);
+    return 0;
+  }
 
     //first 12 data blocks
     for(i = 0; i < 12; i++)
@@ -511,7 +504,6 @@ int myls(char *path)
 
       bnumber = get_block(dev, mip->INODE.i_block[i], buffer); 
       dir = (DIR *)buffer;
-      printf("ls: dir->name = %s\n", dir->name);
 
       block_position = 0;
       while(block_position < BLKSIZE) //print all dir entries in the block
@@ -538,7 +530,6 @@ int mount_root()  // mount root file system, establish / and CWDs
 
   //open device for RW
   dev = open(diskName, O_RDWR);
-  printf("mount_root(): dev = %d\n", dev);
   if(dev < 0)
   {
     printf("Could not open %s\n", diskName);
@@ -575,7 +566,7 @@ int mount_root()  // mount root file system, establish / and CWDs
 
   //root = mount_table[0].mounted_inode;
   printf("root %s has been mounted.\n", root->name);
-  printf("nblocks: %d free blocks: %d num inodes: %d free inodes: %d\n",
+  printf("nblocks: %d    free blocks: %d \nnum inodes: %d    free inodes: %d\n",
     sp->s_blocks_count, gp->bg_free_blocks_count, sp->s_inodes_count, gp->bg_free_inodes_count);
 
   //Let cwd of both P0 and P1 point at the root minode (refCount=3)
@@ -690,8 +681,9 @@ int mycd(char *path)
     if(ino == 0) //if the ino was never found
       return 0; //return unsuccessfull
 
-    startPoint = iget(&dev, ino); //get the MINODE pointer
-    running->cwd = startPoint; //set the cwd to
+    startPoint = iget(dev, ino); //get the MINODE pointer
+    strcpy(startPoint->name, path); //add the name to the MINODE pointer
+    running->cwd = startPoint; //set the cwd to the MINODE pointer
   }
 
   return 1;
