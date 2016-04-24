@@ -1,6 +1,8 @@
 //Computer Science 360, Washington State University
 //Megan McPherson and Erik Lystad, April 2016
 
+//used http://wiki.osdev.org/Ext2#Directory_Entry as a reference for EXT2
+
 //Erik: mount_root*, rmdir, cd*, creat, unlink, stat, touch*, close, write
 //Megan: mkdir*, ls*, pwd*, link*, symlink, chmod, open, read, lseek, cp
 
@@ -372,9 +374,9 @@ MINODE* iget(int dev, int ino)
   //read blk into buf[]
   get_block(dev, blk, buffer); 
   ip = (INODE *)buffer + offset; 
-  printf("ip->i_mode: %d, %d, %d, %d\n", ip->i_mode, ino, dev, blk);
+  //printf("ip->i_mode: %d, %d, %d, %d\n", ip->i_mode, ino, dev, blk);
   mip->INODE = *ip;
-  printf("\nis dir? %d\n", is_dir(mip));
+  //printf("\nis dir? %d\n", is_dir(mip));
 
   //initialize fields of *mip
   mip->dev = dev;
@@ -702,7 +704,7 @@ int myls(char *path, char *parameter)
 {
   int inumber, dev = running->cwd->dev, i = 0, bnumber, block_position;
   MINODE *mip = running->cwd;
-  char buffer[BLKSIZE], *string_position;
+  char buffer[BLKSIZE], *string_position, *mtime;
   DIR *dir;
  
   printf("ls: path = %s\n", path);
@@ -739,17 +741,49 @@ int myls(char *path, char *parameter)
 
       bnumber = get_block(dev, mip->INODE.i_block[i], buffer); 
       dir = (DIR *)buffer;
-
       block_position = 0;
+
       while(block_position < BLKSIZE) //print all dir entries in the block
       {
-        printf("%s\n", dir->name);
+        //get current minode 
+        //printf("dev: %d dir->inode: %d\n", dev, dir->inode);
+        mip = iget(dev, dir->inode);
+
+        //print file type
+        if(is_dir(mip))
+          printf("d ");
+        else if(is_reg_file(mip))
+          printf("r ");
+        else 
+          printf("s ");
+
+        //print permissions
+        printf((mip->INODE.i_mode & 0x0100) ? "r" : " -");
+    	printf((mip->INODE.i_mode & 0x0080) ? "w" : "-");
+    	printf((mip->INODE.i_mode & 0x0040) ? "x" : "-");
+    	printf((mip->INODE.i_mode & 0x0020) ? "r" : "-");
+    	printf((mip->INODE.i_mode & 0x0010) ? "w" : "-");
+    	printf((mip->INODE.i_mode & 0x0008) ? "x" : "-");
+    	printf((mip->INODE.i_mode & 0x0004) ? "r" : "-");
+    	printf((mip->INODE.i_mode & 0x0002) ? "w" : "-");
+    	printf((mip->INODE.i_mode & 0x0001) ? "x" : "-");
+
+        //print everything else
+        //mtime = ctime(&mip->INODE.i_mtime);
+        //mtime[24] = '\0';
+
+        printf("   %d  %d  %d  %d\t%d\t%s\n", mip->INODE.i_links_count, mip->INODE.i_uid, mip->INODE.i_gid, 
+           mip->INODE.i_mtime, mip->INODE.i_size, dir->name);
+
+        iput(mip); //write the minode back to the disk
     
         //move rec_len bytes
         block_position += dir->rec_len;
         string_position = (char *)dir;
         string_position += dir->rec_len;
         dir = (DIR *)string_position;
+
+        //strcpy(mtime, "");
       }
     }
     return 1;
@@ -930,7 +964,7 @@ int mycd(char *path, char *parameter)
   return 1;
 }
 
-int mytouch(char *path, char *parameter)
+int mytouch(char *path, char *parameter) //modify INODE's atime and mtime
 {
   MINODE *mip;
   int ino;
