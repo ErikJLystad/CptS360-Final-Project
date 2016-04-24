@@ -2,7 +2,7 @@
 //Megan McPherson and Erik Lystad, April 2016
 
 //Erik: mount_root*, rmdir, cd*, creat, unlink, stat, touch*, close, write
-//Megan: mkdir*, ls*, pwd*, link, symlink, chmod, open, read, lseek, cp
+//Megan: mkdir*, ls*, pwd*, link*, symlink, chmod, open, read, lseek, cp
 
 #include "type.h"
 
@@ -39,7 +39,7 @@ int put_block(int fd, int blk, char buffer[ ]) //credit to KCW
 int tokenize(char* name)
 {
   int i = 0;
-  char *token;
+  char *token, *cwd_name = running->cwd->name;
 
   //printf("tokenize: name = %s\n", name);
 
@@ -50,6 +50,7 @@ int tokenize(char* name)
     num_tokens = 1;
     return 1;
   }
+
   token = strtok(name, "/");
   //printf("tokenize: token = %s\n", token);
   while(token != NULL)
@@ -59,11 +60,11 @@ int tokenize(char* name)
     token = strtok(0, "/");
   }
   num_tokens = i;
-  //printf("pathname has been split\n");
+  printf("pathname has been split\n");
   i = 0;
   while(tokenized_pathname[i] != 0)
   {
-    //printf("tokenized_pathname[%d] = %s\n", i, tokenized_pathname[i]);
+    printf("tokenized_pathname[%d] = %s\n", i, tokenized_pathname[i]);
     i++;
   }
   return 1;
@@ -173,8 +174,7 @@ int ialloc(int dev) //allocate a free inode, return its inumber
   
   // get the imap block
   get_block(dev, imap, buffer);
-  printf("ialloc: imap = %d, ninodes = %d\n", imap, ninodes);
-
+ 
   for (i=0; i < ninodes; i++) //find the first free inode spot
   {
     if (get_bit(buffer, i) == 0) //if the bit at this buf location is 0, it's free
@@ -231,39 +231,54 @@ bdealloc(int dev, int block_index) //deallocates an block number
   put_block(dev, bmap, buffer); //write it back to the device
 }
 
-int getino(int *device, char *pathname) //int ino = getino(&dev, pathname) essentially returns (dev,ino) of a pathname
+int getino(int *device, char *path) //int ino = getino(&dev, pathname) essentially returns (dev,ino) of a pathname
 {
   int i = 0, inumber, blocknumber;
+  MINODE *mip = root;
+  char *dname, *copy = path, *cwd_name = running->cwd->name;
+
+  printf("getino: path = %s\n");
+
+  if(strcmp(path, "/") == 0)
+    return root->ino;
+
   //1. update *dev
   if (pathname[0] == '/')
     *device = root->dev;
   else
+  {
     *device = running->cwd->dev; //running is a pointer to PROC of current running process.
+  }
 
-  tokenize(pathname);
+  tokenize(path);
+  dname = dirname(copy);
+  printf("dname: %s\n\n", dname);
 
   //2. find and return ino
   for (i = 0; i < num_tokens; i++) //n is number of steps in pathname
   {
-    inumber = search(root, tokenized_pathname[i]);  
-    if (inumber < 1) //: can't find name[i], BOMB OUT!
+    inumber = search(mip, dname);  
+    if (inumber < 1) //: inumber not found
     {
       printf("inode could not be found\n");
       return 0;
     }
+    inumber = search(mip, tokenized_pathname[i]);
+    mip = iget(dev, inumber);
   }
-   printf("getino: inumber = %d\n", inumber);
-   return inumber;
+
+ printf("getino: inumber = %d\n", inumber);
+ return inumber;
 }
 
 //search for a file by name starting with mip
 //if found, return inumber. if not, return 0.
 int search(MINODE *mip, char *name)
 {
-  int i = 0, block_position = 0;
+  int i = 0, block_position = 0, block;
   char *copy, sbuf[BLKSIZE];
 
-  printf("search: name = %s mip->name = %s\n", name, mip->name);
+  printf("search: name = %s mip->name = %s dev = %d ino = %d\n", name, mip->name, mip->dev, mip->ino);
 
   if(strcmp(name, "/") == 0)
     return root->ino;
@@ -272,7 +287,7 @@ int search(MINODE *mip, char *name)
   {
     if(mip->INODE.i_block[i] == 0)
     {
-      printf("search: ip->i_block[%d] == 0\n", i);
+      printf("search: returning 0\n");
       return 0;
     }
 
@@ -280,19 +295,19 @@ int search(MINODE *mip, char *name)
     dp = (DIR*)sbuf;
     copy = sbuf;
 
+    printf("i_block[%d] = %d\n", i, mip->INODE.i_block[i]);
+
     while(block_position < BLKSIZE)
     {
-       if(strcmp(dp->name, name) == 0)
-         return dp->inode;
+      printf("block_position = %d\n",block_position);
+      printf("dp->name = %s\tdp->rec_len = %d\n", dp->name, dp->rec_len);
+      if(strcmp(dp->name, name) == 0)
+        return dp->inode;
 
-       copy += dp->rec_len;
-       dp = (DIR *)copy;
-       block_position += dp->rec_len;
-
-       printf("IN WHILE LOOP...block_position = %d... BLKSIZE = %d\n",block_position, BLKSIZE);
-       printf("copy = %s...dp->name = %s...dp->rec_len = %d...\n", copy, dp->name, dp->rec_len);
+      copy += dp->rec_len;
+      dp = (DIR *)copy;
+      block_position += dp->rec_len;
     }
-    printf("successfully escaped search while statement\n");
   }
   return 0;
 }
@@ -302,6 +317,7 @@ int iput(MINODE *mip)
 {
   char buffer[BLKSIZE];
   INODE *ip;
+  int block, offset;
 
   mip->refCount--;
   if(mip->refCount > 0 || mip->dirty == 0)
@@ -311,8 +327,8 @@ int iput(MINODE *mip)
   if(mip->refCount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
   {
     //Writing Inode back to disk
-    int block = (mip->ino - 1) / 8 + INODEBLOCK;
-    int offset = (mip->ino -1) % 8;
+    block = (mip->ino - 1) / 8 + INODEBLOCK;
+    offset = (mip->ino -1) % 8;
     
     //read block into buf
     get_block(dev, block, buffer);
@@ -515,6 +531,7 @@ int make_dir(char *path, char* paramter) //returns 1 on success, 0 on failure
   //get IN_MEMORY minode of parent
   parent_ino = getino(&dev, parent);
   parent_mip = iget(dev, parent_ino);
+  printf("mkdir: parent_mip->name = %s\n", parent_mip->name);
 
   //verify parent inode is a dir 
   if(is_dir(parent_mip) == 0)
@@ -546,7 +563,7 @@ int mymkdir(MINODE *parent_mip, char *name)
   char buffer[BLKSIZE];
   int i;
 
-  printf("Entering mykdir() successfully....");
+  printf("mymkdir: parent_mip = %s, name = %s\n", parent_mip->name, name);
 
   //allocate inode and disk blocks for new directory
   int inumber = ialloc(dev);
@@ -574,88 +591,95 @@ int mymkdir(MINODE *parent_mip, char *name)
   iput(mip);      //write INODE to disk
    
   //create an entry for the new directory
-  create_dir_entry(parent_mip, inumber, name);
+  create_dir_entry(parent_mip, inumber, name, EXT2_FT_DIR);
   mip->INODE.i_links_count++;
 
   //create . and .. entries for the new directory
-  create_dir_entry(mip, inumber, ".");
-  create_dir_entry(mip, parent_mip->ino, "..");
+  create_dir_entry(mip, inumber, ".", EXT2_FT_DIR);
+  create_dir_entry(mip, parent_mip->ino, "..", EXT2_FT_DIR);
   
   iput(mip);
   return;
 }
 
-int create_dir_entry(MINODE *parent, int inumber, char *name)
+int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
 {
   char buffer[BLKSIZE], *string_position;
-  int ideal_length = 0, i = 0, block, remaining_space = 0, new_dir_length;
+  int ideal_length = 0, i = 2, block, remaining_space = 0, new_dir_length;
   int block_position = 0, new_block;
   DIR *dir;
+
+  printf("create_dir_entry: parent->name = %s dev = %d ino = %d\n", parent->name, parent->dev, parent->ino);
   
   new_dir_length = 4 * ((8 + strlen(name) + 3) / 4);
 
   for(i = 0; i < 12; i++) //assume 12 direct blocks
   {
     if(parent->INODE.i_block[i] == 0)
-      break;
+    {
+      printf("create_dir_entry: returning 0\n");
+      return 0;
+    }
 
     //get parent's ith data block into a buffer  
     get_block(parent->dev, parent->INODE.i_block[i], buffer);
     dir = (DIR *)buffer;
-    string_position = buffer;
+    //string_position = buffer;
 
-    printf("create_dir_entry: dir->name = %s\n", dir->name);
+    //printf("dir->name = %s\trec_len = %d\n", dir->name, dir->rec_len);
+    //printf("name_len = %s inode = %d file type = %d\n", dir->name_len, dir->inode, dir->file_type);
     //step to last entry in data block
-    block = parent->INODE.i_block[i];
-    printf("block = %d\n", block);
-    printf("stepping to last entry in data block %d\n", block);
-    printf("block position: %d, BLKSIZE: %d\n", block_position, BLKSIZE);
+    //printf("block position: %d, BLKSIZE: %d\n", block_position, BLKSIZE);
     
     //THIS WHERE IT HANGS UGHH
     while(block_position < BLKSIZE);
     {
-      printf("hello\n");
+      /*printf("hello\n");
       ideal_length = 4 * ((8 + dir->name_len + 3) / 4); //multiples of 4
       printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
       remaining_space = dir->rec_len + ideal_length;
 
-      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
+      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);*/
 
       //print dir entries to see what they are
-      printf("%s\n", dir->name);
+      printf("block_position = %d\n", block_position);
+      printf("dir->name = %s\tdp->rec_len = %d\n", dir->name, dir->rec_len);
 
-      if(remaining_space >= new_dir_length)
+      /*if(remaining_space >= new_dir_length)
       {
         //resize the current last entry
         dir->rec_len = ideal_length;
         
         //move to the end of the current last entry
-        string_position = (char *)dir;
+        //string_position = (char *)dir;
         string_position += dir->rec_len;
-        block_position += dir->rec_len;
         dir = (DIR *)string_position;
+        block_position += dir->rec_len;
  
         //create the new directory entry
         dir->inode = inumber;
         dir->rec_len = BLKSIZE - block_position;
         dir->name_len = strlen(name);
-        dir->file_type = EXT2_FT_DIR;
+        dir->file_type = type;
         strcpy(dir->name, name);
         
         //write the block back to the device
         put_block(parent->dev, parent->INODE.i_block[i], buffer);
-        return;
-      }
+        return 1;
+      }*/
       
       //move rec_len bytes over
+      
+      //string_position = (char *)dir;
       block_position += dir->rec_len;
       string_position = (char *)dir;
       string_position += dir->rec_len;
       dir = (DIR *)string_position;
-    } 
+    
+    }
   }
   //if we've gotten here, there's no space in existing data blocks
-  new_block = balloc(dev); //allocate a new block
+  /*new_block = balloc(dev); //allocate a new block
   parent->INODE.i_size += BLKSIZE;
 
   //enter the new dir as the first entry in the new block
@@ -669,8 +693,9 @@ int create_dir_entry(MINODE *parent, int inumber, char *name)
   strcpy(dir->name, name);
 
   //write the block back to the device
-  put_block(parent->dev, parent->INODE.i_block[i], buffer);
-  return;
+  put_block(parent->dev, parent->INODE.i_block[i], buffer); */
+  printf("here\n");
+  return 1;
 }
 
 int myls(char *path, char *parameter)
@@ -947,11 +972,21 @@ int mycreat(char *path, char *parameter){}
 //hardlink: create a new file, same inumber as the old file
 int mylink(char *oldfile, char *newfile) 
 {
-  int inumber;
-  MINODE *mip;
-  char *newfile_path, *newfile_name;
+  int inumber, parent_inumber;
+  MINODE *mip, *parent_mip;
+  char *newfile_path, *newfile_name, *temp, *copy, *buffer;
 
   //get an mip that represents oldfile
+  if(oldfile[0] != '/') //if oldfile is relative
+  {
+    temp = strcat(running->cwd->name, "/");
+    oldfile = strcat(temp, oldfile);
+  }
+  if(oldfile[0] != '/') //if newfile is relative
+  {
+    temp = strcat(running->cwd->name, "/");
+    newfile = strcat(temp, newfile);
+  }
   inumber = getino(&dev, oldfile);
   mip = iget(dev, inumber);
 
@@ -959,14 +994,44 @@ int mylink(char *oldfile, char *newfile)
   if(is_reg_file(mip) == 0)
   {
     printf("link: file is not a regular or link file\n");
+    iput(mip);
     return 0;
   }
 
   //check newfile path exists, but dirname doesn't yet
-  newfile_path = dirname(newfile);
-  newfile_name = basename(newfile);
+  copy = newfile;
+  newfile_path = dirname(copy);
+  newfile_name = basename(copy);
 
-  printf("link: path = %s name = %s\n", newfile_path, newfile_name);
+  printf("link: new path = %s, name = %s\n", newfile_path, newfile_name);
+
+  //if newfile path DNE or dirname already exists
+  if(search(root, newfile_path) == 0)
+  {
+    printf("link: %s does not exist\n", newfile_path);
+    iput(mip);
+    return 0;
+  }
+  if(search(root, newfile) == 1)
+  {
+    printf("link: %s already exists\n", newfile);
+    iput(mip);
+    return 0;
+  }
+
+  //add an entry to the data block of newfile_path, same inumber
+  parent_inumber = getino(&dev, newfile_path);
+  parent_mip = iget(dev, parent_inumber);
+  create_dir_entry(parent_mip, mip->ino, newfile, EXT2_FT_REG_FILE);
+  
+  mip->INODE.i_links_count++; //increment links count
+ 
+  //write inode back to disk
+  iput(mip);
+  iput(parent_mip);
+
+  return 1;
+  
 }
 
 //create a new file & inode, point to same inumber as the old file
