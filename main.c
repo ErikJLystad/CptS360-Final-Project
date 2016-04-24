@@ -944,20 +944,19 @@ int myunlink(char *path, char *parameter)
   char *parentPath, *basePath;
 
   strcpy(parentPath,getParentPath(path));
-  strcpy(base, basename(path));
+  strcpy(basePath, basename(path));
 
   //Get the pathnames INODE
   ino = getino(&dev, path);
   mip = iget(dev, ino);
 
   //Check that it is a file
-/*
-  if(is_reg_file == 0 || is_symlink_file() == 0) //not a file type
+  if(is_reg_file(mip) == 0 || is_symlink_file(mip) == 0) //not a file type
   {
     printf("%s is not a file\n", basename(path));
     return 0;
   }
-*/
+
   mip->INODE.i_links_count--; //decrement the inodes link count
 
   if(mip->INODE.i_links_count == 0)
