@@ -260,7 +260,7 @@ int getino(int *device, char *pathname) //int ino = getino(&dev, pathname) essen
 //if found, return inumber. if not, return 0.
 int search(MINODE *mip, char *name)
 {
-  int i, block_position = 0;
+  int i = 0, block_position = 0;
   char *copy, sbuf[BLKSIZE];
 
   printf("search: name = %s mip->name = %s\n", name, mip->name);
@@ -270,8 +270,11 @@ int search(MINODE *mip, char *name)
 
   for(i = 0; i < 12; i++)
   {
-    if(ip->i_block[0] == 0)
+    if(mip->INODE.i_block[i] == 0)
+    {
+      printf("search: ip->i_block[%d] == 0\n", i);
       return 0;
+    }
 
     get_block(mip->dev, mip->INODE.i_block[i], sbuf);
     dp = (DIR*)sbuf;
@@ -298,6 +301,7 @@ int search(MINODE *mip, char *name)
 int iput(MINODE *mip)
 {
   char buffer[BLKSIZE];
+  INODE *ip;
 
   mip->refCount--;
   if(mip->refCount > 0 || mip->dirty == 0)
@@ -461,7 +465,23 @@ int is_dir(MINODE *mip)
     return 0;
 }
 
-int make_dir(char *path) //returns 1 on success, 0 on failure
+int is_reg_file(MINODE *mip)
+{
+  if((mip->INODE.i_mode & 0x8000) == 0x8000)
+    return 1;
+  else
+    return 0;
+}
+
+int is_symlink_file(MINODE *mip)
+{
+  if((mip->INODE.i_mode & 0xA000) == 0xA000)
+    return 1;
+  else
+    return 0;
+}
+
+int make_dir(char *path, char* paramter) //returns 1 on success, 0 on failure
 {
   MINODE *mip, *parent_mip;
   int parent_ino;
@@ -653,7 +673,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name)
   return;
 }
 
-int myls(char *path)
+int myls(char *path, char *parameter)
 {
   int inumber, dev = running->cwd->dev, i = 0, bnumber, block_position;
   MINODE *mip = running->cwd;
@@ -785,7 +805,7 @@ char* getParentPath()
   return str;
 }
 
-int myrmdir()
+int myrmdir(char *path, char *parameter)
 {
   MINODE *pip, *mip;
   char *parentPath;
@@ -862,12 +882,12 @@ int rm_child(MINODE *parent, char *name)
   
 }
 
-int mycd(char *path)
+int mycd(char *path, char *parameter)
 {
   int ino;
   MINODE *startPoint;
 
-  if(strcmp(path, "") == 0) //if there is no path passed in
+  if(strcmp(path, "") == 0 || path == NULL) //if there is no path passed in
   {
     running->cwd = root; //set the cwd to the root
   }
@@ -886,7 +906,7 @@ int mycd(char *path)
   return 1;
 }
 
-int mytouch(char *path)
+int mytouch(char *path, char *parameter)
 {
   MINODE *mip;
   int ino;
@@ -905,7 +925,7 @@ int mytouch(char *path)
   return;
 }
 
-int mypwd(char *path)
+int mypwd(char *path, char *parameter)
 {
   printf("%s\n", running->cwd->name);
 }
@@ -917,7 +937,7 @@ int truncate(MINODE *mip)
 }
 
 //TODO: MERGE WITH MEGANS CODE FOR FILE CHECKS
-int myunlink(char *path)
+int myunlink(char *path, char *parameter)
 {
   int ino, parentIno;
   MINODE *mip, *pip;
@@ -956,18 +976,45 @@ int myunlink(char *path)
   return 1;
 }
 
-int mycreat(char *path){}
-int mylink(char *path){}
-int mysymlink(char *path){}
-int mymenu(){}
-int myexit(){}
-int mystat(char *path){}
-int mychmod(char *path){}
-int mychown(char *path){}
-int mychgrp(char *path){}
+int mycreat(char *path, char *parameter){}
+
+//hardlink: create a new file, same inumber as the old file
+int mylink(char *oldfile, char *newfile) 
+{
+  int inumber;
+  MINODE *mip;
+  char *newfile_path, *newfile_name;
+
+  //get an mip that represents oldfile
+  inumber = getino(&dev, oldfile);
+  mip = iget(dev, inumber);
+
+  //check oldfile is reg or link file (symlink?)
+  if(is_reg_file(mip) == 0)
+  {
+    printf("link: file is not a regular or link file\n");
+    return 0;
+  }
+
+  //check newfile path exists, but dirname doesn't yet
+  newfile_path = dirname(newfile);
+  newfile_name = basename(newfile);
+
+  printf("link: path = %s name = %s\n", newfile_path, newfile_name);
+}
+
+//create a new file & inode, point to same inumber as the old file
+//link across file systems or to directories
+int mysymlink(char *path, char *parameter){}
+int mymenu(char *path, char *parameter){}
+int myexit(char *path, char *parameter){}
+int mystat(char *path, char *parameter){}
+int mychmod(char *path, char *parameter){}
+int mychown(char *path, char *parameter){}
+int mychgrp(char *path, char *parameter){}
 
 char *commands[] = {"mkdir", "rmdir", "cd", "ls", "pwd", "creat", "link", "unlink", "symlink", "menu", "exit", "stat", "chmod", "touch", "chown", "chgrp", "0"};
-int (*function[]) (char*) = {make_dir, myrmdir, mycd, myls, mypwd, mycreat, mylink, myunlink, mysymlink, mymenu, myexit, mystat, mychmod, mytouch, mychown, mychgrp};
+int (*function[]) (char*, char*) = {make_dir, myrmdir, mycd, myls, mypwd, mycreat, mylink, myunlink, mysymlink, mymenu, myexit, mystat, mychmod, mytouch, mychown, mychgrp};
 
 int main(int argc, char *argv[])
 {
@@ -992,6 +1039,8 @@ int main(int argc, char *argv[])
   while(1)
   {
     //reset pathname and parameter each time
+    memset(line, 0, 128);
+    memset(cname, 0, 64);
     memset(pathname, 0, 64);
     memset(parameter,0, 64); 
 
@@ -1007,7 +1056,7 @@ int main(int argc, char *argv[])
     {
       if (!strcmp(cname, commands[i]))
       {
-          (*function[i])(pathname);
+          (*function[i])(pathname, parameter);
           break;
       }
     }
