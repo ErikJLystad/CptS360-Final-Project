@@ -317,13 +317,13 @@ int search(MINODE *mip, char *name)
 //This function releases a Minode[] pointed by mip.
 int iput(MINODE *mip)
 {
-  char buffer[BLKSIZE];
-  INODE *ip;
+  char buffer[BLKSIZE], *position;
   int block, offset;
 
   mip->refCount--;
   if(mip->refCount > 0 || mip->dirty == 0)
   {
+    printf("iput: not doing the thing\n");
     return;
   }
   if(mip->refCount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
@@ -334,9 +334,9 @@ int iput(MINODE *mip)
     
     //read block into buf
     get_block(dev, block, buffer);
-    ip = (INODE *)buffer + offset;
-    *ip = mip->INODE;
-    put_block(dev, block, buffer);
+    position = buffer + offset * 128;
+    memcpy(position, &(mip->INODE), 128);
+    put_block(mip->dev, block, buffer);
   }
 }
 
@@ -499,110 +499,87 @@ int is_symlink_file(MINODE *mip)
     return 0;
 }
 
-int make_dir(char *path, char* paramter) //returns 1 on success, 0 on failure
+void createInode(int dev, int ino, int mode, int uid, int gid)
 {
-  MINODE *mip, *parent_mip;
-  int parent_ino;
+  int i = 0;
+  MINODE *mip = iget(dev, ino);
+
+  mip->INODE.i_mode = mode;
+  mip->INODE.i_uid = uid;
+  mip->INODE.i_gid = gid;
+  mip->INODE.i_size = 1024;
+  mip->INODE.i_links_count = 0;
+
+  mip->INODE.i_atime = mip->INODE.i_ctime = mip->INODE.i_mtime = time(0);
+
+  mip->INODE.i_blocks = 0;
+  mip->dirty = 1;
+
+  for(i = 0; i < 15; ++i)
+  {
+    mip->INODE.i_block[i] = 0;
+  }
+}
+
+int make_dir(char *pathname, char *parameter)
+{
   char *parent, *child, *temp_path;
-  printf("path = %s\n", path);
+  int inumber, parent_inumber;
+  MINODE *parent_minode, *new_minode;
 
-  if(pathname[0] == '/') //if pathname is absolute
-  {
-    mip = root; //start at root minode
-    dev = root->dev;
-    printf("dev = %d\n", dev);
-  }
-  else //if pathname is relative
-  {
-    mip = running->cwd; //start at running proc's cwd
-    dev = running->cwd->dev;
-    printf("dev = %d\n", dev);
-  }
-
-  temp_path = strdup(path); //prepare for destruction 
+  temp_path = strdup(pathname); //prepare for destruction 
   parent = dirname(temp_path);
+
   if(strcmp(parent, ".") == 0)
     parent = "/";
 
-  temp_path = strdup(path);
+  temp_path = strdup(pathname);
   child = basename(temp_path);
 
   printf("parent = %s\n", parent);
   printf("child = %s\n", child);
-
-  //get IN_MEMORY minode of parent
-  parent_ino = getino(&dev, parent);
-  parent_mip = iget(dev, parent_ino);
-  printf("mkdir: parent_mip->name = %s\n", parent_mip->name);
-
-  //verify parent inode is a dir 
-  if(is_dir(parent_mip) == 0)
+	
+  parent_inumber = getino(&dev, parent);
+  if(parent_inumber < 1)
   {
-    printf("mkdir: parent is not a directory\n");
+    printf("Could not find parent.\n");
     return 0;
   }
-     
-  //verify child doesn't already exist in parent
-  if(search(parent_mip, child) != 0)
+
+  parent_minode = iget(dev, parent_inumber);
+  if(is_dir(parent_minode) == 0)
   {
-    printf("mkdir: directory already exists\n");
+    printf("parent is not a directory.\n");
     return 0;
   }
-  
-  mymkdir(parent_mip, child);
 
-  parent_mip->INODE.i_links_count++;
-  parent_mip->INODE.i_atime = time(0);
-  parent_mip->dirty = 1;
-  
-  iput(parent_mip);
-}
-
-int mymkdir(MINODE *parent_mip, char *name)
-{
-  MINODE *mip; //new dir minode
-  INODE *ip;
-  char buffer[BLKSIZE];
-  int i;
-
-  printf("mymkdir: parent_mip = %s, name = %s\n", parent_mip->name, name);
-
-  //allocate inode and disk blocks for new directory
-  int inumber = ialloc(dev);
-  int bnumber = balloc(dev);
-
-  mip = iget(dev, inumber); //load inode into a minode[]
-  ip = &mip->INODE; 
-
-  //write new dir attributes to mip->INODE
-  ip->i_mode = 0x41ED;
-  ip->i_uid = running->uid;
-  ip->i_gid = running->gid;
-  ip->i_size = BLKSIZE;                       //size in bytes
-  ip->i_links_count = 2;                      //. and ..
-  ip->i_atime = ip->i_ctime = ip->i_mtime = time(0L); //current time
-  ip->i_blocks = 2;
-  ip->i_block[0] = bnumber;
- 
-  for(i = 1; i < 15; i++)
+  if(search(parent_minode, child) != 0)
   {
-    ip->i_block[i] = 0;
+    printf("%s already exists.\n", child);
+    return 0;
   }
 
-  mip->dirty = 1; //mark minode dirty
-  iput(mip);      //write INODE to disk
-   
-  //create an entry for the new directory
-  create_dir_entry(parent_mip, inumber, name, EXT2_FT_DIR);
-  mip->INODE.i_links_count++;
+  inumber = ialloc(dev); //allocate the space for a new inode
+  create_dir_entry(parent_minode, inumber, child, EXT2_FT_DIR); //give it a dir entry
 
-  //create . and .. entries for the new directory
-  create_dir_entry(mip, inumber, ".", EXT2_FT_DIR);
-  create_dir_entry(mip, parent_mip->ino, "..", EXT2_FT_DIR);
-  
-  iput(mip);
-  return;
+  //populate mip->INODE with things
+  createInode(dev, inumber, DIR_MODE, running->uid, running->gid);
+
+  new_minode = iget(dev, inumber);
+  new_minode->INODE.i_links_count++;
+
+  create_dir_entry(new_minode, inumber, ".", EXT2_FT_DIR);
+  create_dir_entry(new_minode, parent_minode->ino, "..", EXT2_FT_DIR);
+
+  parent_minode->INODE.i_atime = parent_minode->INODE.i_mtime = time(0);
+
+  iput(parent_minode); //release mips, write back to block
+  iput(new_minode);
+    
+   return 0;
 }
+
+
 
 int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
 {
@@ -1073,14 +1050,29 @@ int mylink(char *oldfile, char *newfile)
 //link across file systems or to directories
 int mysymlink(char *path, char *parameter){}
 int mymenu(char *path, char *parameter){}
-int myexit(char *path, char *parameter){}
+
+int myquit(char *path, char *parameter)
+{
+  int i = 0;
+  
+  for(i = 0; i < NMINODES; i++)
+  {
+    minode[i].refCount = 1;
+    minode[i].dirty = 1;
+    iput(&minode[i]);
+  }
+
+  printf("Goodbye!\n");
+  exit(1);
+}
+
 int mystat(char *path, char *parameter){}
 int mychmod(char *path, char *parameter){}
 int mychown(char *path, char *parameter){}
 int mychgrp(char *path, char *parameter){}
 
-char *commands[] = {"mkdir", "rmdir", "cd", "ls", "pwd", "creat", "link", "unlink", "symlink", "menu", "exit", "stat", "chmod", "touch", "chown", "chgrp", "0"};
-int (*function[]) (char*, char*) = {make_dir, myrmdir, mycd, myls, mypwd, mycreat, mylink, myunlink, mysymlink, mymenu, myexit, mystat, mychmod, mytouch, mychown, mychgrp};
+char *commands[] = {"mkdir", "rmdir", "cd", "ls", "pwd", "creat", "link", "unlink", "symlink", "menu", "quit", "stat", "chmod", "touch", "chown", "chgrp", "0"};
+int (*function[]) (char*, char*) = {make_dir, myrmdir, mycd, myls, mypwd, mycreat, mylink, myunlink, mysymlink, mymenu, myquit, mystat, mychmod, mytouch, mychown, mychgrp};
 
 int main(int argc, char *argv[])
 {
