@@ -634,21 +634,22 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
     //printf("block position: %d, BLKSIZE: %d\n", block_position, BLKSIZE);
     
     //THIS WHERE IT HANGS UGHH
-    while(block_position < BLKSIZE);
+    while(block_position < BLKSIZE)
     {
-      /*printf("hello\n");
+      printf("hello\n");
       ideal_length = 4 * ((8 + dir->name_len + 3) / 4); //multiples of 4
       printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
       remaining_space = dir->rec_len + ideal_length;
 
-      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);*/
+      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
 
       //print dir entries to see what they are
       printf("block_position = %d\n", block_position);
       printf("dir->name = %s\tdp->rec_len = %d\n", dir->name, dir->rec_len);
 
-      /*if(remaining_space >= new_dir_length)
+      if(dir->rec_len > ideal_length)
       {
+        printf("in if statement\n");
         //resize the current last entry
         dir->rec_len = ideal_length;
         
@@ -668,7 +669,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
         //write the block back to the device
         put_block(parent->dev, parent->INODE.i_block[i], buffer);
         return 1;
-      }*/
+      }
       
       //move rec_len bytes over
       
@@ -681,7 +682,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
     }
   }
   //if we've gotten here, there's no space in existing data blocks
-  /*new_block = balloc(dev); //allocate a new block
+  new_block = balloc(dev); //allocate a new block
   parent->INODE.i_size += BLKSIZE;
 
   //enter the new dir as the first entry in the new block
@@ -695,7 +696,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
   strcpy(dir->name, name);
 
   //write the block back to the device
-  put_block(parent->dev, parent->INODE.i_block[i], buffer); */
+  put_block(parent->dev, parent->INODE.i_block[i], buffer); 
   printf("here\n");
   return 1;
 }
