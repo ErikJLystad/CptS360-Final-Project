@@ -3,7 +3,7 @@
 
 //used http://wiki.osdev.org/Ext2#Directory_Entry as a reference for EXT2
 
-//Erik: mount_root*, rmdir, cd*, creat, unlink, stat, touch*, close, write
+//Erik: mount_root*, rmdir, cd*, creat*, unlink, stat, touch*, close, write
 //Megan: mkdir*, ls*, pwd*, link*, symlink, chmod, open, read, lseek, cp
 
 #include "type.h"
@@ -499,7 +499,7 @@ int is_symlink_file(MINODE *mip)
     return 0;
 }
 
-void createInode(int dev, int ino, int mode, int uid, int gid)
+void enter_name(int dev, int ino, int mode, int uid, int gid, int size)
 {
   int i = 0;
   MINODE *mip = iget(dev, ino);
@@ -507,7 +507,7 @@ void createInode(int dev, int ino, int mode, int uid, int gid)
   mip->INODE.i_mode = mode;
   mip->INODE.i_uid = uid;
   mip->INODE.i_gid = gid;
-  mip->INODE.i_size = 1024;
+  mip->INODE.i_size = size;
   mip->INODE.i_links_count = 0;
 
   mip->INODE.i_atime = mip->INODE.i_ctime = mip->INODE.i_mtime = time(0);
@@ -536,26 +536,28 @@ int make_dir(char *pathname, char *parameter)
   temp_path = strdup(pathname);
   child = basename(temp_path);
 
-  printf("parent = %s\n", parent);
-  printf("child = %s\n", child);
+  //printf("parent = %s\n", parent);
+  //printf("child = %s\n", child);
 	
+  //get the inumber of the alleged parent directory
   parent_inumber = getino(&dev, parent);
   if(parent_inumber < 1)
   {
-    printf("Could not find parent.\n");
+    printf("mkdir: parent directory does not exist.\n");
     return 0;
   }
 
+  //load the parent into memory
   parent_minode = iget(dev, parent_inumber);
   if(is_dir(parent_minode) == 0)
   {
-    printf("parent is not a directory.\n");
+    printf("mkdir: %s is not a directory.\n", parent);
     return 0;
   }
 
   if(search(parent_minode, child) != 0)
   {
-    printf("%s already exists.\n", child);
+    printf("mkdir: %s already exists in that directory\n", child);
     return 0;
   }
 
@@ -563,17 +565,22 @@ int make_dir(char *pathname, char *parameter)
   create_dir_entry(parent_minode, inumber, child, EXT2_FT_DIR); //give it a dir entry
 
   //populate mip->INODE with things
-  createInode(dev, inumber, DIR_MODE, running->uid, running->gid);
+  enter_name(dev, inumber, DIR_MODE, running->uid, running->gid, 1024);
 
-  new_minode = iget(dev, inumber);
+  //load the freshly created inode into memory
+  new_minode = iget(dev, inumber); 
   new_minode->INODE.i_links_count++;
 
+  //create . and .. entries for the new dir
   create_dir_entry(new_minode, inumber, ".", EXT2_FT_DIR);
   create_dir_entry(new_minode, parent_minode->ino, "..", EXT2_FT_DIR);
 
+  //update the proud parent
   parent_minode->INODE.i_atime = parent_minode->INODE.i_mtime = time(0);
+  parent_minode->INODE.i_links_count++;
 
-  iput(parent_minode); //release mips, write back to block
+  //release minode pointers, write back to block
+  iput(parent_minode); 
   iput(new_minode);
     
    return 0;
@@ -603,14 +610,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
     //get parent's ith data block into a buffer  
     get_block(parent->dev, parent->INODE.i_block[i], buffer);
     dir = (DIR *)buffer;
-    //string_position = buffer;
-
-    //printf("dir->name = %s\trec_len = %d\n", dir->name, dir->rec_len);
-    //printf("name_len = %s inode = %d file type = %d\n", dir->name_len, dir->inode, dir->file_type);
-    //step to last entry in data block
-    //printf("block position: %d, BLKSIZE: %d\n", block_position, BLKSIZE);
     
-    //THIS WHERE IT HANGS UGHH
     while(block_position < BLKSIZE)
     {
       printf("hello\n");
@@ -979,7 +979,67 @@ int myunlink(char *path, char *parameter)
   if((mip->INODE.i_mode & 0x4000) == 0x4000){}
 }
 
-int mycreat(char *path, char *parameter){}
+//same algorithm as mkdir! slightly different.
+int mycreat(char *pathname, char *parameter)
+{
+  char *parent, *child, *temp_path;
+  int inumber, parent_inumber;
+  MINODE *parent_minode, *new_minode;
+
+  temp_path = strdup(pathname); //prepare for destruction 
+  parent = dirname(temp_path);
+
+  if(strcmp(parent, ".") == 0)
+    parent = "/";
+
+  temp_path = strdup(pathname);
+  child = basename(temp_path);
+
+  //printf("parent = %s\n", parent);
+  //printf("child = %s\n", child);
+	
+  //get the inumber of the alleged parent directory
+  parent_inumber = getino(&dev, parent);
+  if(parent_inumber < 1)
+  {
+    printf("mkdir: parent directory does not exist.\n");
+    return 0;
+  }
+
+  //load the parent into memory
+  parent_minode = iget(dev, parent_inumber);
+  if(is_dir(parent_minode) == 0)
+  {
+    printf("mkdir: %s is not a directory.\n", parent);
+    return 0;
+  }
+
+  if(search(parent_minode, child) != 0)
+  {
+    printf("mkdir: %s already exists in that directory\n", child);
+    return 0;
+  }
+
+  inumber = ialloc(dev); //allocate the space for a new inode
+  create_dir_entry(parent_minode, inumber, child, EXT2_FT_REG_FILE); //give it a dir entry
+
+  //populate mip->INODE with things
+  enter_name(dev, inumber, FILE_MODE, running->uid, running->gid, 0);
+
+  //load the freshly created inode into memory
+  new_minode = iget(dev, inumber); 
+  new_minode->INODE.i_links_count++;
+
+  //update the proud parent
+  parent_minode->INODE.i_atime = parent_minode->INODE.i_mtime = time(0);
+  parent_minode->INODE.i_links_count++;
+
+  //release minode pointers, write back to block
+  iput(parent_minode); 
+  iput(new_minode);
+    
+   return 0;
+}
 
 //hardlink: create a new file, same inumber as the old file
 int mylink(char *oldfile, char *newfile) 
