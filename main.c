@@ -1,7 +1,7 @@
 //Computer Science 360, Washington State University
 //Megan McPherson and Erik Lystad, April 2016
 
-//Erik: mount_root*, rmdir, cd*, creat, unlink*, stat, touch*, close, write
+//Erik: mount_root*, rmdir, cd*, creat, unlink, stat, touch*, close, write
 //Megan: mkdir*, ls*, pwd*, link, symlink, chmod, open, read, lseek, cp
 
 #include "type.h"
@@ -805,6 +805,20 @@ char* getParentPath()
   return str;
 }
 
+rm_child(MINODE *pip, char *name)
+{
+  char buffer[BLKSIZE];
+  int i;
+
+  for(i = 0; i < 12; i++)
+  {
+    if(pip->INODE.i_block[i] == 0)
+      return 0;
+    
+    
+  }
+}
+
 int myrmdir(char *path, char *parameter)
 {
   MINODE *pip, *mip;
@@ -875,12 +889,14 @@ int myrmdir(char *path, char *parameter)
 }
 
 //TODO: FINISH THIS FUNCTION
+/*
 int rm_child(MINODE *parent, char *name)
 {
   int searchResult;
   searchResult = search(parent, name);
   
 }
+*/
 
 int mycd(char *path, char *parameter)
 {
@@ -936,7 +952,6 @@ int truncate(MINODE *mip)
   
 }
 
-//TODO: MERGE WITH MEGANS CODE FOR FILE CHECKS
 int myunlink(char *path, char *parameter)
 {
   int ino, parentIno;
@@ -975,6 +990,51 @@ int myunlink(char *path, char *parameter)
   return 1;
 }
 
+
+
+int execute_stat(char *pathname, stat *st)
+{
+  int ino;
+  MINODE *mip;
+
+//get INODE of pathname into a minode;
+  ino = getino(&dev, pathname);
+  mip = iget(dev, ino);
+//copy (dev, ino) of minode to (st_dev, st_ino) of the STAT structure in user space;
+  st->st_dev = dev;
+  st->st_ino = ino;
+//copy other fields of INODE to STAT structure in user space;
+  st->st_mode = mip->INODE.i_mode;
+  st->st_nlink = mip->INODE.i_links_count;
+  st->st_uid = mip->INODE.i_uid;
+  st->st_gid = mip->INODE.i_gid;
+  st->st_size = mip->INODE.i_size;
+  st->st_atime = mip->INODE.i_atime;
+  st->st_mtime = mip->INODE.i_mtime;
+  st->st_ctime = mip->INODE.i_ctime;
+  st->st_blksize = BLKSIZE;
+  st->st_blocks = mip->INODE.i_blocks;
+
+  printf("dev=%d\tino=%d\tmod=%s\n", st->st_dev, st->st_ino, st->st_mode);
+  printf("uid=%d\tgid=%d\tnlink=%d\n", st_uid, st_gid, st_nlink);
+  printf("size=%d\ttime=%s\n", st_size, st_atime);
+
+  if(iput(mip) == 0) //iput failed
+    return 0;
+
+  return 1;
+}
+
+int mystat(char *path, char *parameter)
+{
+  struct stat mystat, *st;
+  st = &mystat;
+
+  execute_stat(path, st);
+
+  return 1;
+}
+
 int mycreat(char *path, char *parameter){}
 
 //hardlink: create a new file, same inumber as the old file
@@ -1007,7 +1067,6 @@ int mylink(char *oldfile, char *newfile)
 int mysymlink(char *path, char *parameter){}
 int mymenu(char *path, char *parameter){}
 int myexit(char *path, char *parameter){}
-int mystat(char *path, char *parameter){}
 int mychmod(char *path, char *parameter){}
 int mychown(char *path, char *parameter){}
 int mychgrp(char *path, char *parameter){}
