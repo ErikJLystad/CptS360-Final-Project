@@ -831,7 +831,7 @@ int mount_root()  // mount root file system, establish / and CWDs
 rm_child(MINODE *pip, char *name)
 {
   char buffer[BLKSIZE], *location;
-  int i, curr_block_position,prev_block_position temp_block, leftover_space;
+  int i, curr_block_position,prev_block_position, temp_block, leftover_space;
   DIR *current, *previous; //keeping track of 
 
   for(i = 0; i < 12; i++) //search through all the parents direct blocks
@@ -840,7 +840,7 @@ rm_child(MINODE *pip, char *name)
       continue;
     get_block(pip->dev, pip->INODE.i_block[i], buffer); //get the block for the currently searched directory directory
     current = (DIR *)&buffer;
-    location = (char *)dir;
+    location = (char *)current;
     
     while(curr_block_position < BLKSIZE)
     {
@@ -876,39 +876,40 @@ rm_child(MINODE *pip, char *name)
         prev_block_position = curr_block_position;
         
         //move current dir forward by rec_len bytes to move it to next position
-        location = (char *)dir;
+        location = (char *)current;
         location += current->rec_len;
-        block_position2 += current;
-        current = (Dir *)curr_block_location;
+        prev_block_position += current->rec_len;
+        current = (DIR *)location;
         
         //get the leftover space that is left
         leftover_space = previous->rec_len;
         
-        while(block_position2 < BLKSIZE)
+        while(prev_block_position < BLKSIZE)
+        {
           //copy rest of current to previous
-          previous->INODE = current->INODE;
+          previous->inode = current->inode;
           previous->rec_len = current->rec_len;
           previous->name_len = current->name_len;
           previous->file_type = current->file_type;
           strcpy(previous->name, current->name);
         
           //add the leftover space to the previous dir to keep things even
-          if(block_position2 + current->rec_len == BLKSIZE)
+          if(prev_block_position + current->rec_len == BLKSIZE)
           {
             previous->rec_len += leftover_space;
-            putblock(pip->dev, pip->INODE.i_block[i], buffer);
+            put_block(pip->dev, pip->INODE.i_block[i], buffer);
           }
         
           //move current forward
-          location = (char *)dir;
-          location += dir->rec_len;
-          block_position2 += current->rec_len;
+          location = (char *)current;
+          location += current->rec_len;
+          prev_block_position += current->rec_len;
           current = (DIR *)location;
 
           //move previous forward
           location = (char *)previous;
-          location += previous->rec_len
-          block_position2 += previous->rec_len;
+          location += previous->rec_len;
+          prev_block_position += previous->rec_len;
           previous = (DIR *)location;
         }
       }
@@ -918,7 +919,7 @@ rm_child(MINODE *pip, char *name)
       //move forward
       location = (char *)current;
       location += current->rec_len;
-      block_position += current->rec_len;
+      curr_block_position += current->rec_len;
       current = (DIR *)location;
     }
   }
