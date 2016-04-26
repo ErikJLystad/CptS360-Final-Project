@@ -3,8 +3,9 @@
 
 //used http://wiki.osdev.org/Ext2#Directory_Entry as a reference for EXT2
 
-//Erik: mount_root*, rmdir, cd*, creat*, unlink, stat, touch*, close, write
+//Erik: mount_root*, rmdir, cd*, creat*, unlink*, stat*, touch*, close, write
 //Megan: mkdir*, ls*, pwd*, link*, symlink, chmod, open, read, lseek, cp
+//whoever: cat, mv
 
 #include "type.h"
 
@@ -239,7 +240,7 @@ int getino(int *device, char *path) //int ino = getino(&dev, pathname) essential
   MINODE *mip = root;
   char *dname, *copy = path, *cwd_name = running->cwd->name;
 
-  printf("getino: path = %s\n");
+  printf("getino: path = %s\n", path);
 
   if(strcmp(path, "/") == 0)
     return root->ino;
@@ -846,6 +847,7 @@ rm_child(MINODE *pip, char *name)
 {
   char buffer[BLKSIZE];
   int i;
+  DIR *current, *next;
 
   for(i = 0; i < 12; i++)
   {
@@ -860,7 +862,7 @@ int myrmdir(char *path, char *parameter)
 {
   MINODE *pip, *mip;
   char *parentPath;
-  int parentIno, ino, i;
+  int parentIno, ino, i, block_position;
 
   parentPath = getParentPath();
 
@@ -883,19 +885,39 @@ int myrmdir(char *path, char *parameter)
       printf("rmdir: that's not a directory\n");
       return 0;
     }
-  /*if(dir_is_busy(mip) == 1) //check if the directory is busy
+  if(mip->refCount > 1) //check if the directory is busy
     {
-      printf("The directory is currently in use. Please end all tasks from this directory and try again...\n");
+      printf("The directory is busy\n");
       return 0;
     }
-  if(dir_is_empty(mip) == 0) // check if the directory is empty
+  
+  //Ensure that it is not empty
+  char buffer[BLKSIZE];
+  for(i = 0; i < 12; i++)
   {
-    printf("The directory is not empty...");
-    return 0;
-  } */
+    if(mip->INODE.i_block[i] != 0)
+    {
+      get_block(mip->dev, mip->INODE.i_block[i], buffer);
+      DIR *d = (DIR *)&buffer;
+      while(block_position < BLKSIZE)
+      {
+        if (strcmp(d->name, ".") && strcmp(d->name, ".."))
+        {
+          printf("Not empty, can not remove\n");
+          iput(mip);
+          iput(mip);
+          return 0;
+        }
+        char *location = (char *)d;
+        location += d->rec_len;
+        block_position += d->rec_len;
+        d = (DIR *)location;
+      }
+    }
+  }
   
   //Deallocate all the directory's blocks and inode
-  for (i=0; i<12; i++) // loop through the blocks first
+  for (i = 0; i < 12; i++) // loop through the blocks first
   {
     if (mip->INODE.i_block[i]==0)
       continue;
@@ -919,6 +941,7 @@ int myrmdir(char *path, char *parameter)
   
   pip->dirty = 1; //mark pip as dirty
   
+  iput(mip);
   iput(pip); //clear refCount
   
   return 1;
@@ -952,6 +975,13 @@ int mycd(char *path, char *parameter)
       return 0; //return unsuccessfull
 
     startPoint = iget(dev, ino); //get the MINODE pointer
+
+    if(is_dir(startPoint) == 0)
+    {
+      printf("NOT A DIR. Please enter a valid directory\n");
+      return 0;
+    }
+
     strcpy(startPoint->name, path); //add the name to the MINODE pointer
     running->cwd = startPoint; //set the cwd to the MINODE pointer
   }
@@ -975,7 +1005,7 @@ int mytouch(char *path, char *parameter) //modify INODE's atime and mtime
 
   iput(mip);
 
-  return;
+  return 1;
 }
 
 int mypwd(char *path, char *parameter)
@@ -983,10 +1013,50 @@ int mypwd(char *path, char *parameter)
   printf("%s\n", running->cwd->name);
 }
 
-//TODO: WRITE THIS FUNCTION
 int truncate(MINODE *mip)
 {
+  char buffer1[BLKSIZE], buffer2[BLKSIZE];
+  int i, a, b;
+  //deallocate the direct blocks first
+  for(i = 0; i < 12; i++) 
+  {
+    if(mip->INODE.i_block[i] == 0)
+    {
+      continue; //No need to deallocate, don't waste runtime
+    }
+    bdealloc(mip->dev, mip->INODE.i_block[i]); //deallocate this direct block
+  }
+  //Now deallocate the indirect blocks
+  if(mip->INODE.i_block[12] != 0)
+  {
+    get_block(mip->dev, mip->INODE.i_block[12], buffer1); //Gain access to the 256 indirect blocks pointed to by iblock[12]
+    for(a = 0; a < 256; a++) //loop through all the indrect blocks
+    {
+      if(buffer1[a] == 0)
+        {
+          continue;
+        }
+      bdealloc(mip->dev, buffer1[a]); //deallocate the indirect block
+    }
+  }
   
+  //Now deallocate the double indirect blocks
+  if(mip->INODE.i_block[13] != 0)
+  {
+    get_block(mip->dev, mip->INODE.i_block[13], buffer1); //gain acess to the first level of 256 blocks in iblock[13]. Each has 256 blocks inside them...
+    for(a = 0; a < 256; a++) //loop through this first level of blocks
+    {
+      get_block(mip->dev, buffer1[a], buffer2); //gain access to each first level blocks second level of 256 blocks
+      for(b = 0; b <256; b++) //loop through that particular second level of 256 blocks. These are the double indirect blocks we want
+      {
+        if(buffer1[a] == 0)
+        {
+          continue;
+        }
+        bdealloc(mip->dev, buffer1[a]); //Deallocate the double indirect block
+      }
+    }
+  }
 }
 
 int myunlink(char *path, char *parameter)
@@ -1024,13 +1094,16 @@ int myunlink(char *path, char *parameter)
   pip = iget(dev, parentIno);
   rm_child(pip, basePath);
 
+  iput(mip);
+  iput(pip);
+
   return 1;
 }
 
-
-
-int execute_stat(char *pathname, stat *st)
+int mystat(char *path, char *parameter)
 {
+  struct stat mystat;
+
   int ino;
   MINODE *mip;
 
@@ -1038,36 +1111,41 @@ int execute_stat(char *pathname, stat *st)
   ino = getino(&dev, pathname);
   mip = iget(dev, ino);
 //copy (dev, ino) of minode to (st_dev, st_ino) of the STAT structure in user space;
-  st->st_dev = dev;
-  st->st_ino = ino;
+  mystat.st_dev = dev;
+  mystat.st_ino = ino;
 //copy other fields of INODE to STAT structure in user space;
-  st->st_mode = mip->INODE.i_mode;
-  st->st_nlink = mip->INODE.i_links_count;
-  st->st_uid = mip->INODE.i_uid;
-  st->st_gid = mip->INODE.i_gid;
-  st->st_size = mip->INODE.i_size;
-  st->st_atime = mip->INODE.i_atime;
-  st->st_mtime = mip->INODE.i_mtime;
-  st->st_ctime = mip->INODE.i_ctime;
-  st->st_blksize = BLKSIZE;
-  st->st_blocks = mip->INODE.i_blocks;
+  mystat.st_mode = mip->INODE.i_mode;
+  mystat.st_nlink = mip->INODE.i_links_count;
+  mystat.st_uid = mip->INODE.i_uid;
+  mystat.st_gid = mip->INODE.i_gid;
+  mystat.st_size = mip->INODE.i_size;
+  mystat.st_atime = mip->INODE.i_atime;
+  mystat.st_mtime = mip->INODE.i_mtime;
+  mystat.st_ctime = mip->INODE.i_ctime;
+  mystat.st_blksize = BLKSIZE;
+  mystat.st_blocks = mip->INODE.i_blocks;
 
-  printf("dev=%d\tino=%d\tmod=%s\n", st->st_dev, st->st_ino, st->st_mode);
-  printf("uid=%d\tgid=%d\tnlink=%d\n", st_uid, st_gid, st_nlink);
-  printf("size=%d\ttime=%s\n", st_size, st_atime);
+  printf("SET ALL THE VALUES\n");
 
-  if(iput(mip) == 0) //iput failed
-    return 0;
+  printf("dev=%i\tino=%i\tmod=", mystat.st_dev, mystat.st_ino, mystat.st_mode);
 
-  return 1;
-}
+  printf( (S_ISDIR(mystat.st_mode)) ? "d" : "-");
+  printf( (mystat.st_mode & S_IRUSR) ? "r" : "-");
+  printf( (mystat.st_mode & S_IWUSR) ? "w" : "-");
+  printf( (mystat.st_mode & S_IXUSR) ? "x" : "-");
+  printf( (mystat.st_mode & S_IRGRP) ? "r" : "-");
+  printf( (mystat.st_mode & S_IWGRP) ? "w" : "-");
+  printf( (mystat.st_mode & S_IXGRP) ? "x" : "-");
+  printf( (mystat.st_mode & S_IROTH) ? "r" : "-");
+  printf( (mystat.st_mode & S_IWOTH) ? "w" : "-");
+  printf( (mystat.st_mode & S_IXOTH) ? "x" : "-");
+  printf("\n");
 
-int mystat(char *path, char *parameter)
-{
-  struct stat mystat, *st;
-  st = &mystat;
+  printf("uid=%s\tgid=%s\tnlink=%i\n", mystat.st_uid, mystat.st_gid, mystat.st_nlink);
+  printf("size=%i\ttime=%i\n", mystat.st_size, mystat.st_atime);
+  
 
-  execute_stat(path, st);
+  iput(mip);
 
   return 1;
 }
@@ -1203,9 +1281,6 @@ int mylink(char *oldfile, char *newfile)
 //link across file systems or to directories
 int mysymlink(char *path, char *parameter){}
 int mymenu(char *path, char *parameter){}
-<<<<<<< HEAD
-int myexit(char *path, char *parameter){}
-=======
 
 int myquit(char *path, char *parameter)
 {
@@ -1222,8 +1297,6 @@ int myquit(char *path, char *parameter)
   exit(1);
 }
 
-int mystat(char *path, char *parameter){}
->>>>>>> master
 int mychmod(char *path, char *parameter){}
 int mychown(char *path, char *parameter){}
 int mychgrp(char *path, char *parameter){}
