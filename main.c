@@ -256,7 +256,7 @@ int getino(int *device, char *path) //int ino = getino(&dev, pathname) essential
 
   tokenize(path);
   dname = dirname(copy);
-  printf("dname: %s\n\n", dname);
+  //printf("dname: %s\n\n", dname);
 
   if(strcmp(dname, ".") == 0)
     dname = "/";
@@ -287,7 +287,7 @@ int search(MINODE *mip, char *name)
   int i = 0, block_position = 0, block;
   char *copy, sbuf[BLKSIZE];
 
-  printf("search: name = %s mip->name = %s dev = %d ino = %d\n", name, mip->name, mip->dev, mip->ino);
+  //printf("search: name = %s mip->name = %s dev = %d ino = %d\n", name, mip->name, mip->dev, mip->ino);
 
   if(strcmp(name, "/") == 0)
     return root->ino;
@@ -297,7 +297,7 @@ int search(MINODE *mip, char *name)
     block_position = 0;
     if(mip->INODE.i_block[i] == 0)
     {
-      printf("search: returning 0\n");
+      //printf("search: returning 0\n");
       return 0;
     }
 
@@ -305,12 +305,12 @@ int search(MINODE *mip, char *name)
     dp = (DIR*)sbuf;
     copy = sbuf;
 
-    printf("i_block[%d] = %d\n", i, mip->INODE.i_block[i]);
+    //printf("i_block[%d] = %d\n", i, mip->INODE.i_block[i]);
 
     while(block_position < BLKSIZE)
     {
-      printf("block_position = %d\n",block_position);
-      printf("dp->name = %s\tdp->rec_len = %d\n", dp->name, dp->rec_len);
+      //printf("block_position = %d\n",block_position);
+      //printf("dp->name = %s\tdp->rec_len = %d\n", dp->name, dp->rec_len);
       if(strcmp(dp->name, name) == 0)
         return dp->inode;
 
@@ -333,14 +333,11 @@ int inode_search(INODE * inodePtr, char * name)
   DIR *dir = (DIR *)buffer;
   char *cp = buffer;
 
-  printf("\n********Root Directory Entries******\n");
-  printf("  inode  rec_len  name_len  name\n");
-
   // search for name string in the data blocks of this INODE
   int i = 0;
   do
   {
-    printf("    %d      %d       %d       %s\n", dir->inode, dir->rec_len, dir->name_len, dir->name);
+    //printf("    %d      %d       %d       %s\n", dir->inode, dir->rec_len, dir->name_len, dir->name);
     if(strcmp(dir->name, name) == 0)
     {
       printf("\ninumber for %s has been found: %d\n", dir->name, dir->inode);
@@ -521,7 +518,10 @@ int init() //initialize level 1 data structures
 int is_dir(MINODE *mip)
 {
   if((mip->INODE.i_mode & 0x4000) == 0x4000)
+  {
+    //printf("is_dir: returning 1\n");
     return 1;
+  }
   else
     return 0;
 }
@@ -545,6 +545,7 @@ int is_symlink_file(MINODE *mip)
 void enter_name(int dev, int ino, int mode, int uid, int gid, int size)
 {
   int i = 0;
+
   MINODE *mip = iget(dev, ino);
 
   mip->INODE.i_mode = mode;
@@ -610,11 +611,12 @@ int make_dir(char *pathname, char *parameter)
   create_dir_entry(parent_minode, inumber, child, EXT2_FT_DIR); //give it a dir entry
 
   //populate mip->INODE with things
-  enter_name(dev, inumber, DIR_MODE, running->uid, running->gid, 1024);
+  enter_name(dev, inumber, EXT2_FT_DIR, running->uid, running->gid, 1024);
 
   //load the freshly created inode into memory
   new_minode = iget(dev, inumber); 
   new_minode->INODE.i_links_count++;
+ 
 
   //create . and .. entries for the new dir
   create_dir_entry(new_minode, inumber, ".", EXT2_FT_DIR);
@@ -640,7 +642,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
   int block_position = 0, new_block;
   DIR *dir;
 
-  printf("create_dir_entry: parent->name = %s dev = %d ino = %d\n", parent->name, parent->dev, parent->ino);
+  printf("create_dir_entry: parent->name = %s name = %s inumber = %d\n", parent->name, name, inumber);
   
   new_dir_length = 4 * ((8 + strlen(name) + 3) / 4);
 
@@ -660,7 +662,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
     {
       ideal_length = 4 * ((8 + dir->name_len + 3) / 4); //multiples of 4
       remaining_space = dir->rec_len + ideal_length;
-      printf("dir->name = %s\tdp->rec_len = %d\n", dir->name, dir->rec_len);
+      //printf("dir->name = %s\tdp->rec_len = %d\n", dir->name, dir->rec_len);
 
       if(dir->rec_len > ideal_length)
       {
@@ -758,34 +760,33 @@ int myls(char *path, char *parameter)
       while(block_position < BLKSIZE) //print all dir entries in the block
       {
         //get current minode 
-        //printf("dev: %d dir->inode: %d\n", dev, dir->inode);
+        //printf("dir->inode: %d\n", dev, dir->inode);
         current_mip = iget(dev, dir->inode);
-
         //print file type
-        if(is_dir(mip))
-          printf("\nd ");
-        else if(is_reg_file(mip))
-          printf("\nr ");
+        if(is_dir(current_mip))
+          printf("d");
+        else if(is_reg_file(current_mip))
+          printf("r");
         else 
-          printf("\ns ");
+          printf("s");
 
         //print permissions
-        printf((mip->INODE.i_mode & 0x0100) ? "r" : "-");
-    	printf((mip->INODE.i_mode & 0x0080) ? "w" : "-");
-    	printf((mip->INODE.i_mode & 0x0040) ? "x" : "-");
-    	printf((mip->INODE.i_mode & 0x0020) ? "r" : "-");
-    	printf((mip->INODE.i_mode & 0x0010) ? "w" : "-");
-    	printf((mip->INODE.i_mode & 0x0008) ? "x" : "-");
-    	printf((mip->INODE.i_mode & 0x0004) ? "r" : "-");
-    	printf((mip->INODE.i_mode & 0x0002) ? "w" : "-");
-    	printf((mip->INODE.i_mode & 0x0001) ? "x" : "-");
+        printf((current_mip->INODE.i_mode & 0x0100) ? "r" : "-");
+    	printf((current_mip->INODE.i_mode & 0x0080) ? "w" : "-");
+    	printf((current_mip->INODE.i_mode & 0x0040) ? "x" : "-");
+    	printf((current_mip->INODE.i_mode & 0x0020) ? "r" : "-");
+    	printf((current_mip->INODE.i_mode & 0x0010) ? "w" : "-");
+    	printf((current_mip->INODE.i_mode & 0x0008) ? "x" : "-");
+    	printf((current_mip->INODE.i_mode & 0x0004) ? "r" : "-");
+    	printf((current_mip->INODE.i_mode & 0x0002) ? "w" : "-");
+    	printf((current_mip->INODE.i_mode & 0x0001) ? "x" : "-");
 
         //print everything else
         //mtime = ctime(&mip->INODE.i_mtime);
         //mtime[24] = '\0';
 
-        printf("   %d  %d  %d  %d\t%d\t%s\n", mip->INODE.i_links_count, mip->INODE.i_uid, mip->INODE.i_gid, 
-           mip->INODE.i_mtime, mip->INODE.i_size, dir->name);
+        printf("   %d  %d  %d  %d\t%d\t%d\t%s\n", current_mip->INODE.i_links_count, current_mip->INODE.i_uid, current_mip->INODE.i_gid, 
+           current_mip->INODE.i_mtime, current_mip->INODE.i_size, current_mip->ino, dir->name);
 
         //printf("dir->rec_len = %d, position = %d\n", dir->rec_len, block_position);
         iput(current_mip); //write the minode back to the disk
@@ -1372,7 +1373,7 @@ int mycreat(char *pathname, char *parameter)
   parent_inumber = getino(&dev, parent);
   if(parent_inumber < 1)
   {
-    printf("mkdir: parent directory does not exist.\n");
+    printf("creat: parent directory does not exist.\n");
     return 0;
   }
 
@@ -1380,13 +1381,13 @@ int mycreat(char *pathname, char *parameter)
   parent_minode = iget(dev, parent_inumber);
   if(is_dir(parent_minode) == 0)
   {
-    printf("mkdir: %s is not a directory.\n", parent);
+    printf("creat: %s is not a directory.\n", parent);
     return 0;
   }
 
   if(search(parent_minode, child) != 0)
   {
-    printf("mkdir: %s already exists in that directory\n", child);
+    printf("creat: %s already exists in that directory\n", child);
     return 0;
   }
 
