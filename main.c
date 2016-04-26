@@ -263,7 +263,7 @@ int getino(int *device, char *path) //int ino = getino(&dev, pathname) essential
   //2. find and return ino
   for (i = 0; i < num_tokens; i++) //n is number of steps in pathname
   {
-    inumber = inode_search(ip, dname);  
+    inumber = inode_search(ip, tokenized_pathname[i]);  
     if (inumber < 1) //: inumber not found
     {
       printf("inode could not be found\n");
@@ -1008,9 +1008,62 @@ int mytouch(char *path, char *parameter) //modify INODE's atime and mtime
   return;
 }
 
+char* get_cwd_path(int this_ino)
+{
+  MINODE *parent_mip, *mip;
+  int parent_ino, blocknumber, block_position = 0;
+  char cat_name[128], buffer[1024], *string_position;
+  DIR *dir;
+
+  if(this_ino == 2) //reached root
+  {
+    return cat_name;
+  }
+
+  mip = iget(dev, this_ino);
+
+  //blocknumber = ((this_ino - 1) / 8) + 10;
+ 
+  //printf("get_cwd_path: dir->name = %s\n", dir->name);
+  parent_ino = search(mip, "..");
+  printf("get_cwd_path: parent_ino = %d\n", parent_ino);
+  iput(mip);
+
+  parent_mip = iget(dev, parent_ino);
+  get_block(dev, parent_mip->INODE.i_block[0], buffer);
+  dir = (DIR *)buffer;
+  printf("get_cwd_path: dir_name = %s\n", dir->name);
+  
+  while(block_position < BLKSIZE)
+  {
+    if(dir->inode == this_ino)
+    {
+      printf("get_cwd_path: dir_name = %s\n", dir->name);
+      strcpy(cat_name, "/");
+      strcat(cat_name, dir->name);
+      printf("get_cwd_path: cat_name = %s\n", cat_name);
+      break;
+    }
+
+    //move rec_len over
+    block_position += dir->rec_len;
+    string_position = (char *)dir;
+    string_position += dir->rec_len;
+    dir = (DIR *) string_position;
+  }
+
+  iput(parent_mip);
+  return strcat(get_cwd_path(parent_ino), cat_name);
+}
+
 int mypwd(char *path, char *parameter)
 {
-  printf("%s\n", running->cwd->name);
+  printf("mypwd: running->cwd->ino = %d\n", running->cwd->ino);
+  
+  if(running->cwd->ino == 2)
+    printf("/\n");
+  else
+    printf("%s\n", get_cwd_path(running->cwd->ino));
 }
 
 int myunlink(char *path, char *parameter)
