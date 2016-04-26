@@ -3,8 +3,8 @@
 
 //used http://wiki.osdev.org/Ext2#Directory_Entry as a reference for EXT2
 
-//Erik: mount_root*, rmdir, cd*, creat*, unlink*, stat*, touch*, close, write
-//Megan: mkdir*, ls*, pwd*, link*, symlink, chmod, open, read, lseek, cp
+//Erik: mount_root*, rmdir*, cd*, chmod, unlink*, stat*, touch*, close, write
+//Megan: mkdir*, ls*, pwd*, link*, symlink, creat*, open, read, lseek, cp
 //whoever: cat, mv
 
 #include "type.h"
@@ -1365,6 +1365,58 @@ int mylink(char *oldfile, char *newfile)
   
 }
 
+int mychmod(char *newMode, char *path)
+{
+  int octal_form, ino, i;
+  MINODE *mip;
+  
+  //check for neccessary input
+  if(strcmp(path, "") == 0)
+  {
+    printf("Please specify a proper filename/path\n");
+    return 0;
+  }
+  if(strcmp(newMode, "") == 0)
+  {
+    printf("Please specify a proper filename/path\n");
+    return 0;
+  }
+
+  //check for proper path
+  ino = getino(&dev, path);
+  if(ino == 0)
+  {
+    printf("The path you entered does not exist\n");
+    return 0;
+  }
+
+  mip = iget(dev, ino);
+
+  //attempt to convert the string to a number to see if it is in octal form
+  octal_form = atoi(newMode);
+  
+  //if atoi returns zero, failed to convert and not octal
+  if(octal_form != 0)
+  {
+    
+  }
+  else
+  {
+    printf("Please enter permissions in octal form\n");
+    iput(mip);
+  }
+  
+  //touch inode since we have modified it
+  mip->INODE.i_atime = time(NULL);
+  mip->INODE.i_mtime = time(NULL);
+  //mark as dirty
+  mip->dirty = 1;
+  //no longer using mip
+  iput(mip);
+
+  return 1;
+}
+
 //create a new file & inode, point to same inumber as the old file
 //link across file systems or to directories
 int mysymlink(char *path, char *parameter){}
@@ -1385,7 +1437,7 @@ int myquit(char *path, char *parameter)
   exit(1);
 }
 
-int mychmod(char *path, char *parameter){}
+
 int mychown(char *path, char *parameter){}
 int mychgrp(char *path, char *parameter){}
 
