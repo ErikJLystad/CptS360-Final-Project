@@ -7,6 +7,7 @@
 //Megan: mkdir*, ls*, pwd*, link*, symlink, chmod, open, read, lseek, cp
 
 #include "type.h"
+#include <stdlib.h>
 
 typedef unsigned int   u32;
 
@@ -44,6 +45,9 @@ int tokenize(char* name)
   char *token, *cwd_name = running->cwd->name;
 
   //printf("tokenize: name = %s\n", name);
+  for(i = 0; i < 256; i++)
+    tokenized_pathname[i] = 0;
+  num_tokens = i = 0;
 
   if(strcmp(name, "/") == 0)
   {
@@ -254,16 +258,20 @@ int getino(int *device, char *path) //int ino = getino(&dev, pathname) essential
   }
 
   tokenize(path);
-  dname = dirname(copy);
-  printf("dname: %s\n\n", dname);
+  printf("tokenized_pathname[i] = %s\n", tokenized_pathname[i]);
+  printf("num_tokens = %d\n", num_tokens);
+  //dname = dirname(copy);
+  //printf("dname: %s\n\n", dname);
 
-  if(strcmp(dname, ".") == 0)
-    dname = "/";
+  //if(strcmp(dname, ".") == 0)
+  //  dname = "/";
 
+  printf("tokenized_pathname[i] = %s\n", tokenized_pathname[i]);
   //2. find and return ino
   for (i = 0; i < num_tokens; i++) //n is number of steps in pathname
   {
-    inumber = inode_search(ip, dname);  
+    printf("i = %d tokenized_pathname[i] = %s\n", i, tokenized_pathname[i]);
+    inumber = inode_search(ip, tokenized_pathname[i]);  
     if (inumber < 1) //: inumber not found
     {
       printf("inode could not be found\n");
@@ -324,33 +332,30 @@ int search(MINODE *mip, char *name)
 int inode_search(INODE * inodePtr, char * name)
 {
   char buffer[1024];
-
+  printf("searching for: %s\n", name);
   get_block(dev, inodePtr->i_block[0], buffer);
 
   //read the block into buf 
   //let DIR *dp and char *cp BOTH point at buf
-  DIR *dir = (DIR *)buffer;
-  char *cp = buffer;
+  DIR *dp = (DIR *)buffer;
+  char *copy = buffer;
 
   printf("\n********Root Directory Entries******\n");
   printf("  inode  rec_len  name_len  name\n");
 
   // search for name string in the data blocks of this INODE
-  int i = 0;
-  do
-  {
-    printf("    %d      %d       %d       %s\n", dir->inode, dir->rec_len, dir->name_len, dir->name);
-    if(strcmp(dir->name, name) == 0)
+  int block_position = 0;
+  while(block_position < BLKSIZE)
     {
-      printf("\ninumber for %s has been found: %d\n", dir->name, dir->inode);
-      return dir->inode;
+      printf("block_position = %d\n",block_position);
+      printf("dp->name = %s\tdp->rec_len = %d\n", dp->name, dp->rec_len);
+      if(strcmp(dp->name, name) == 0)
+        return dp->inode;
+
+      copy += dp->rec_len;
+      dp = (DIR *)copy;
+      block_position += dp->rec_len;
     }
-    else
-    {
-      cp += dir->rec_len; //advance cp by rec_len bytes
-      dir = (DIR *)cp; //pull dir along to the next record
-    }
-  }while(strcmp(dir->name, "") != 0);
 
   //if we've gotten here, the name wasn't found
   return 0;   
@@ -466,6 +471,54 @@ int findmyname(MINODE *parent, int myino, char *myname)
   
 }
 
+char* get_cwd_path(int this_ino)
+{
+  MINODE *parent_mip, *mip;
+  int parent_ino, blocknumber, block_position = 0;
+  char cat_name[128], buffer[1024], *string_position;
+  DIR *dir;
+
+  if(this_ino == 2) //reached root
+  {
+    return cat_name;
+  }
+
+  mip = iget(dev, this_ino);
+
+  //blocknumber = ((this_ino - 1) / 8) + 10;
+ 
+  //printf("get_cwd_path: dir->name = %s\n", dir->name);
+  parent_ino = search(mip, "..");
+  printf("get_cwd_path: parent_ino = %d\n", parent_ino);
+  iput(mip);
+
+  parent_mip = iget(dev, parent_ino);
+  get_block(dev, parent_mip->INODE.i_block[0], buffer);
+  dir = (DIR *)buffer;
+  printf("get_cwd_path: dir_name = %s\n", dir->name);
+  
+  while(block_position < BLKSIZE)
+  {
+    if(dir->inode == this_ino)
+    {
+      printf("get_cwd_path: dir_name = %s\n", dir->name);
+      strcpy(cat_name, "/");
+      strcat(cat_name, dir->name);
+      printf("get_cwd_path: cat_name = %s\n", cat_name);
+      break;
+    }
+
+    //move rec_len over
+    block_position += dir->rec_len;
+    string_position = (char *)dir;
+    string_position += dir->rec_len;
+    dir = (DIR *) string_position;
+  }
+
+  iput(parent_mip);
+  return strcat(get_cwd_path(parent_ino), cat_name);
+}
+
 //level 1
 
 int init() //initialize level 1 data structures
@@ -567,21 +620,57 @@ void enter_name(int dev, int ino, int mode, int uid, int gid, int size)
 
 int make_dir(char *pathname, char *parameter)
 {
-  char *parent, *child, *temp_path;
+  char *parent, *child, *temp_path, cwd[128];
   int inumber, parent_inumber;
   MINODE *parent_minode, *new_minode;
 
-  temp_path = strdup(pathname); //prepare for destruction 
-  parent = dirname(temp_path);
+  if(pathname[0] == '/') //absolute path
+  {
+    temp_path = strdup(pathname); //prepare for destruction 
+    printf("temp_path = %s\n", temp_path);
+    parent = dirname(temp_path);
 
-  if(strcmp(parent, ".") == 0)
-    parent = "/";
+    temp_path = strdup(pathname);
+    printf("temp_path = %s\n", temp_path);
+    child = basename(temp_path);
 
-  temp_path = strdup(pathname);
-  child = basename(temp_path);
+    if(strcmp(parent, ".") == 0)
+      parent = "/";
+  }
+ 
+  else
+  { 
+    strcpy(cwd, "");
+    strcat(cwd, get_cwd_path(running->cwd->ino));
+    if(strcmp(get_cwd_path(running->cwd->ino), "") != 0)
+      strcat(cwd, "/");
+    temp_path = strcat(cwd, pathname);
+    printf("temp_path = %s\n", temp_path);
+    parent = dirname(temp_path);
 
-  //printf("parent = %s\n", parent);
-  //printf("child = %s\n", child);
+    
+    if(strcmp(get_cwd_path(running->cwd->ino), "") != 0)
+      strcat(cwd, "/");
+    //temp_path = strcat(cwd, pathname);
+    printf("temp_path = %s\n", temp_path);
+    child = basename(temp_path);
+
+    if(strcmp(parent, ".") == 0)
+      parent = "/";
+
+    tokenize(parent);
+    if(num_tokens == 1)
+    {
+      parent = "/";
+      strcpy(child, pathname);
+    }
+  }
+
+  
+
+  printf("num_tokens = %d\n", num_tokens);
+  printf("parent = %s\n", parent);
+  printf("child = %s\n", child);
 	
   //get the inumber of the alleged parent directory
   parent_inumber = getino(&dev, parent);
@@ -726,19 +815,55 @@ int myls(char *path, char *parameter)
 {
   int inumber, dev = running->cwd->dev, i = 0, bnumber, block_position;
   MINODE *mip = running->cwd, *current_mip;
-  char buffer[BLKSIZE], *string_position, *mtime;
+  char buffer[BLKSIZE], *string_position, *mtime, *temp_path, *parent, *child, cwd[128];
   DIR *dir;
- 
-  printf("ls: path = %s\n", path);
-  if(path == NULL || strcmp(path, "") == 0) 
+
+  if(strcmp(path, "") == 0 || path == 0)
   {
-    path = mip->name;
-    printf("path = %s\n", path);
+    path = running->cwd->name;
   }
-  if(path[0] == '/') //if path is absolute
-    dev = root->dev;
+ 
+  else if(path[0] == '/') //absolute path
+  {
+    temp_path = strdup(pathname); //prepare for destruction 
+    printf("temp_path = %s\n", temp_path);
+    parent = dirname(temp_path);
+
+    temp_path = strdup(pathname);
+    printf("temp_path = %s\n", temp_path);
+    child = basename(temp_path);
+
+    if(strcmp(parent, ".") == 0)
+      parent = "/";
+  }
+ 
+  else
+  { 
+    strcpy(cwd, "");
+    strcat(cwd, get_cwd_path(running->cwd->ino));
+    if(strcmp(get_cwd_path(running->cwd->ino), "") != 0)
+      strcat(cwd, "/");
+    temp_path = strcat(cwd, pathname);
+    printf("temp_path = %s\n", temp_path);
+    parent = dirname(temp_path);
+
     
-  printf("dev = %d\n", dev);
+    if(strcmp(get_cwd_path(running->cwd->ino), "") != 0)
+      strcat(cwd, "/");
+    temp_path = strcat(cwd, pathname);
+    printf("temp_path = %s\n", temp_path);
+    child = basename(temp_path);
+
+    if(strcmp(parent, ".") == 0)
+      parent = "/";
+
+    tokenize(parent);
+    if(num_tokens == 1)
+    {
+      parent = "/";
+      strcpy(child, pathname);
+    }
+  }
 
   inumber = getino(&dev, path); //get this specific path
 
@@ -1025,9 +1150,16 @@ int mytouch(char *path, char *parameter) //modify INODE's atime and mtime
   return;
 }
 
+
+
 int mypwd(char *path, char *parameter)
 {
-  printf("%s\n", running->cwd->name);
+  printf("mypwd: running->cwd->ino = %d\n", running->cwd->ino);
+  
+  if(running->cwd->ino == 2)
+    printf("/\n");
+  else
+    printf("%s\n", get_cwd_path(running->cwd->ino));
 }
 
 //TODO: WRITE THIS FUNCTION
@@ -1122,27 +1254,57 @@ int mystat(char *path, char *parameter)
 //same algorithm as mkdir! slightly different.
 int mycreat(char *pathname, char *parameter)
 {
-  char *parent, *child, *temp_path;
+  char *parent, *child, *temp_path, cwd[128];
   int inumber, parent_inumber;
   MINODE *parent_minode, *new_minode;
 
-  temp_path = strdup(pathname); //prepare for destruction 
-  parent = dirname(temp_path);
+  if(pathname[0] == '/') //absolute path
+  {
+    temp_path = strdup(pathname); //prepare for destruction 
+    printf("temp_path = %s\n", temp_path);
+    parent = dirname(temp_path);
 
-  if(strcmp(parent, ".") == 0)
-    parent = "/";
+    temp_path = strdup(pathname);
+    printf("temp_path = %s\n", temp_path);
+    child = basename(temp_path);
 
-  temp_path = strdup(pathname);
-  child = basename(temp_path);
+    if(strcmp(parent, ".") == 0)
+      parent = "/";
+  }
+ 
+  else
+  { 
+    strcpy(cwd, "");
+    strcat(cwd, get_cwd_path(running->cwd->ino));
+    if(strcmp(get_cwd_path(running->cwd->ino), "") != 0)
+      strcat(cwd, "/");
+    temp_path = strcat(cwd, pathname);
+    printf("temp_path = %s\n", temp_path);
+    parent = dirname(temp_path);
 
-  //printf("parent = %s\n", parent);
-  //printf("child = %s\n", child);
+    
+    if(strcmp(get_cwd_path(running->cwd->ino), "") != 0)
+      strcat(cwd, "/");
+    temp_path = strcat(cwd, pathname);
+    printf("temp_path = %s\n", temp_path);
+    child = basename(temp_path);
+
+    if(strcmp(parent, ".") == 0)
+      parent = "/";
+
+    tokenize(parent);
+    if(num_tokens == 1)
+    {
+      parent = "/";
+      strcpy(child, pathname);
+    }
+  }
 	
   //get the inumber of the alleged parent directory
   parent_inumber = getino(&dev, parent);
   if(parent_inumber < 1)
   {
-    printf("mkdir: parent directory does not exist.\n");
+    printf("creat: parent directory does not exist.\n");
     return 0;
   }
 
@@ -1150,13 +1312,13 @@ int mycreat(char *pathname, char *parameter)
   parent_minode = iget(dev, parent_inumber);
   if(is_dir(parent_minode) == 0)
   {
-    printf("mkdir: %s is not a directory.\n", parent);
+    printf("creat: %s is not a directory.\n", parent);
     return 0;
   }
 
   if(search(parent_minode, child) != 0)
   {
-    printf("mkdir: %s already exists in that directory\n", child);
+    printf("creat: %s already exists in that directory\n", child);
     return 0;
   }
 
