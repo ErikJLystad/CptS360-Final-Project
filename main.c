@@ -3,8 +3,9 @@
 
 //used http://wiki.osdev.org/Ext2#Directory_Entry as a reference for EXT2
 
-//Erik: mount_root*, rmdir, cd*, creat*, unlink, stat, touch*, close, write
-//Megan: mkdir*, ls*, pwd*, link*, symlink, chmod, open, read, lseek, cp
+//Erik: mount_root*, rmdir*, cd*, chmod, unlink*, stat*, touch*, close, write
+//Megan: mkdir*, ls*, pwd*, link*, symlink, creat*, open, read, lseek, cp
+//whoever: cat, mv
 
 #include "type.h"
 
@@ -833,8 +834,6 @@ int mount_root()  // mount root file system, establish / and CWDs
 
   
   
-
-  
   //initialize entry in mount_table
   mount_table[0].busy = 0;
   strcpy(mount_table[0].name, diskName);
@@ -865,26 +864,111 @@ int mount_root()  // mount root file system, establish / and CWDs
   return 1;
 }
 
-char* getParentPath()
+rm_child(MINODE *pip, char *name)
 {
-  char *str = "";
-  int i;
-  for(i = 0; i < num_tokens-1; i++)
+  char buffer[BLKSIZE], *location;
+  int i, curr_block_position,prev_block_position, temp_block, leftover_space;
+  DIR *current, *previous; //keeping track of 
+
+  for(i = 0; i < 12; i++) //search through all the parents direct blocks
   {
-    strcat(str, tokenized_pathname[i]);
-    strcat(str, "/");
+    if(pip->INODE.i_block[i] == 0)
+      continue;
+    get_block(pip->dev, pip->INODE.i_block[i], buffer); //get the block for the currently searched directory directory
+    current = (DIR *)&buffer;
+    location = (char *)current;
+    
+    while(curr_block_position < BLKSIZE)
+    {
+      //we have found a match to name
+      if(strcmp(current->name, name) == 0) 
+      {
+        //if match was in the last entry
+        if(curr_block_position + current->rec_len == BLKSIZE) 
+        {
+          //if it is the only entry in the block
+          if(curr_block_position == 0) 
+          {
+            temp_block = pip->INODE.i_block[i];
+            pip->INODE.i_block[i] = 0;
+            bdealloc(pip->dev, temp_block);
+            pip->dirty = 1;
+            return 1;
+          }
+          //if it is not the only entry in the block...
+
+          //reallocate the space after removal
+          previous->rec_len += current->rec_len; 
+          //write the parents data block back
+          put_block(pip->dev, pip->INODE.i_block[i], buffer);
+
+          return 1;
+        }
+
+        //if the match found is not in the last entry...
+
+        //set the previous dir to the one we just went through
+        previous = current; 
+        prev_block_position = curr_block_position;
+        
+        //move current dir forward by rec_len bytes to move it to next position
+        location = (char *)current;
+        location += current->rec_len;
+        prev_block_position += current->rec_len;
+        current = (DIR *)location;
+        
+        //get the leftover space that is left
+        leftover_space = previous->rec_len;
+        
+        while(prev_block_position < BLKSIZE)
+        {
+          //copy rest of current to previous
+          previous->inode = current->inode;
+          previous->rec_len = current->rec_len;
+          previous->name_len = current->name_len;
+          previous->file_type = current->file_type;
+          strcpy(previous->name, current->name);
+        
+          //add the leftover space to the previous dir to keep things even
+          if(prev_block_position + current->rec_len == BLKSIZE)
+          {
+            previous->rec_len += leftover_space;
+            put_block(pip->dev, pip->INODE.i_block[i], buffer);
+          }
+        
+          //move current forward
+          location = (char *)current;
+          location += current->rec_len;
+          prev_block_position += current->rec_len;
+          current = (DIR *)location;
+
+          //move previous forward
+          location = (char *)previous;
+          location += previous->rec_len;
+          prev_block_position += previous->rec_len;
+          previous = (DIR *)location;
+        }
+      }
+      
+      previous = current;
+
+      //move forward
+      location = (char *)current;
+      location += current->rec_len;
+      curr_block_position += current->rec_len;
+      current = (DIR *)location;
+    }
   }
-  strcat(str, tokenized_pathname[i+1]);
-  return str;
+  return 0;
 }
 
 int myrmdir(char *path, char *parameter)
 {
   MINODE *pip, *mip;
   char *parentPath;
-  int parentIno, ino, i;
+  int parentIno, ino, i, block_position;
 
-  parentPath = getParentPath();
+  parentPath = dirname(path);
 
   printf("attempting to remove %s...\n", pathname);
 
@@ -893,11 +977,16 @@ int myrmdir(char *path, char *parameter)
   //get the minode[] pointer
   mip = iget(dev, ino);
   
-  if(running->uid != 0) //we only check access priveleges if it's not the super user
+  //we only check access priveleges if it's not the super user
+  if(running->uid != 0) 
   {
-    if(mip->INODE.i_uid != running->uid) //if the uid of the current process doesn't match the parent id
-    printf("Access denied\n"); //they dont have access priveleges
-    return 0;
+    //if the uid of the current process doesn't match the parent id
+    if(mip->INODE.i_uid != running->uid) 
+      {
+        //they dont have access priveleges
+        printf("Access denied\n"); 
+        return 0;
+      }
   }
   
   if(is_dir(mip) == 0) //check if it's not a directory
@@ -905,53 +994,82 @@ int myrmdir(char *path, char *parameter)
       printf("rmdir: that's not a directory\n");
       return 0;
     }
-  /*if(dir_is_busy(mip) == 1) //check if the directory is busy
+  if(mip->refCount > 1) //check if the directory is busy
     {
-      printf("The directory is currently in use. Please end all tasks from this directory and try again...\n");
+      printf("The directory is busy\n");
       return 0;
     }
-  if(dir_is_empty(mip) == 0) // check if the directory is empty
+  
+  //Ensure that it is not empty
+  char buffer[BLKSIZE];
+    //go through all the data blocks
+  for(i = 0; i < 12; i++)
   {
-    printf("The directory is not empty...");
-    return 0;
-  } */
+    //if the inode data block is 0 we need not bother with it
+    if(mip->INODE.i_block[i] != 0)
+    {
+      //get the block and the directory info
+      get_block(mip->dev, mip->INODE.i_block[i], buffer);
+      DIR *d = (DIR *)&buffer;
+      //loop through the block
+      while(block_position < BLKSIZE)
+      {
+        //if it doesn't equal . or .. then it is something else, meaning not empty
+        if (strcmp(d->name, ".") == 1 && strcmp(d->name, "..") == 1)
+        {
+          printf("Not empty, can not remove\n");
+          iput(mip);
+          iput(mip);
+          return 0;
+        }
+        //move forward in the block
+        char *location = (char *)d;
+        location += d->rec_len;
+        block_position += d->rec_len;
+        d = (DIR *)location;
+      }
+    }
+  }
   
   //Deallocate all the directory's blocks and inode
-  for (i=0; i<12; i++) // loop through the blocks first
+    //loop through the blocks first
+  for (i = 0; i < 12; i++) 
   {
     if (mip->INODE.i_block[i]==0)
       continue;
-    bdealloc(mip->dev, mip->INODE.i_block[i]); //deallocate the blocks
+    //deallocate the blocks
+    bdealloc(mip->dev, mip->INODE.i_block[i]); 
   }
-  idealloc(mip->dev, mip->ino); //Now deallocate the inode
-  iput(mip); //clear mip-> refCount
+  //Now deallocate the inode
+  idealloc(mip->dev, mip->ino); 
+  //reduce mip->refCount, no longer being used
+  iput(mip); 
   
-  parentIno = getino(&dev, parentPath); //get the parent inode
+  //get the parent inode
+  parentIno = getino(&dev, parentPath); 
 
-  pip = iget(mip->dev, parentIno); //get the parent MINODE pointer
+  //get the parent MINODE pointer
+  pip = iget(mip->dev, parentIno); 
   
   //remove child entry from parent directory
   rm_child(pip, tokenized_pathname[num_tokens]);
 
-  pip->INODE.i_links_count--; //decrement pips link count
+  //decrement pips link count
+  pip->INODE.i_links_count--; 
 
   //update pips atime and mtime
   pip->INODE.i_atime = time(NULL);
   pip->INODE.i_mtime = time(NULL);
   
-  pip->dirty = 1; //mark pip as dirty
+  //mark pip as dirty
+  pip->dirty = 1; 
   
-  iput(pip); //clear refCount
+  //reduce refCount
+  iput(mip);
+  iput(pip); 
   
   return 1;
 
-}
-
-int rm_child(MINODE *parent, char *name)
-{
-  int searchResult;
-  searchResult = search(parent, name);
-  
 }
 
 int mycd(char *path, char *parameter)
@@ -971,6 +1089,13 @@ int mycd(char *path, char *parameter)
       return 0; //return unsuccessfull
 
     startPoint = iget(dev, ino); //get the MINODE pointer
+
+    if(is_dir(startPoint) == 0)
+    {
+      printf("NOT A DIR. Please enter a valid directory\n");
+      return 0;
+    }
+
     strcpy(startPoint->name, path); //add the name to the MINODE pointer
     running->cwd = startPoint; //set the cwd to the MINODE pointer
     iput(startPoint);
@@ -979,23 +1104,32 @@ int mycd(char *path, char *parameter)
   return 1;
 }
 
-int mytouch(char *path, char *parameter) //modify INODE's atime and mtime
+//modify INODE's atime and mtime
+int mytouch(char *path, char *parameter) 
 {
   MINODE *mip;
   int ino;
 
-  ino = getino(&dev, path); //get the inumber of the pathname
-  mip = iget(dev, ino);//get the minode[] pointer
+  //get the inumber of the pathname
+  ino = getino(&dev, path); 
+  if(ino == 0)
+  {
+    printf("No such file exists\n");
+  }
+
+  //get the minode[] pointer
+  mip = iget(dev, ino);
 
   //update the inodes atime and mtime
   mip->INODE.i_atime = time(NULL);
   mip->INODE.i_mtime = time(NULL);
   
-  mip->dirty = 1; //mark that the inode ahs been updated
+  //mark that the inode ahs been updated
+  mip->dirty = 1; 
 
   iput(mip);
 
-  return;
+  return 1;
 }
 
 char* get_cwd_path(int this_ino)
@@ -1056,17 +1190,163 @@ int mypwd(char *path, char *parameter)
     printf("%s\n", get_cwd_path(running->cwd->ino));
 }
 
+int truncate(MINODE *mip)
+{
+  char buffer1[BLKSIZE], buffer2[BLKSIZE];
+  int i, a, b;
+
+  //deallocate the direct blocks first
+  for(i = 0; i < 12; i++) 
+  {
+    if(mip->INODE.i_block[i] == 0)
+    {
+      //No need to deallocate, don't waste runtime
+      continue; 
+    }
+    //deallocate this direct block
+    bdealloc(mip->dev, mip->INODE.i_block[i]); 
+  }
+  //Now deallocate the indirect blocks
+  if(mip->INODE.i_block[12] != 0)
+  {
+    //Gain access to the 256 indirect blocks pointed to by iblock[12]
+    get_block(mip->dev, mip->INODE.i_block[12], buffer1); 
+    //loop through all the indrect blocks
+    for(a = 0; a < 256; a++) 
+    {
+      if(buffer1[a] == 0)
+        {
+          continue;
+        }
+      //deallocate the indirect block
+      bdealloc(mip->dev, buffer1[a]); 
+    }
+  }
+  
+  //Now deallocate the double indirect blocks
+  if(mip->INODE.i_block[13] != 0)
+  {
+    //gain acess to the first level of 256 blocks in iblock[13]. Each has 256 blocks inside them...
+    get_block(mip->dev, mip->INODE.i_block[13], buffer1); 
+    //loop through this first level of blocks
+    for(a = 0; a < 256; a++) 
+    {
+      //gain access to each first level blocks second level of 256 blocks
+      get_block(mip->dev, buffer1[a], buffer2); 
+      //loop through that particular second level of 256 blocks. These are the double indirect blocks we want
+      for(b = 0; b <256; b++) 
+      {
+        if(buffer1[a] == 0)
+        {
+          continue;
+        }
+        //Deallocate the double indirect block
+        bdealloc(mip->dev, buffer1[a]); 
+      }
+    }
+  }
+
+  //touch
+  mip->INODE.i_atime = time(NULL);
+  mip->INODE.i_mtime = time(NULL);
+  //mark dirty now
+  mip->dirty = 1;
+  //fully deallocated, so set the size
+  mip->INODE.i_size = 0;
+
+  return 1;
+}
+
 int myunlink(char *path, char *parameter)
 {
-  int ino;
-  MINODE *mip;
+  int ino, parentIno;
+  MINODE *mip, *pip;
+  char *parentPath, *basePath, *path_cpy;
 
-  //1. Get the pathnames INODE
+  strcpy(path_cpy, path);
+  strcpy(parentPath, dirname(path_cpy));
+  strcpy(basePath, basename(path));
+
+  //Get the pathnames INODE
   ino = getino(&dev, path);
   mip = iget(dev, ino);
 
-  //2. Check that it is a file
-  if((mip->INODE.i_mode & 0x4000) == 0x4000){}
+  //Check that it is a file
+  if(is_reg_file(mip) == 0 || is_symlink_file(mip) == 0) //not a file type
+  {
+    printf("%s is not a file\n", basename(path));
+    return 0;
+  }
+
+  mip->INODE.i_links_count--; //decrement the inodes link count
+
+  if(mip->INODE.i_links_count == 0)
+  {
+    //deallocate the pathnames data blocks
+    truncate(mip);
+    
+    //deallocate the pathnames INODE
+    idealloc(dev, mip->ino); 
+  }
+
+  parentIno = getino(&dev, parentPath);
+  pip = iget(dev, parentIno);
+  rm_child(pip, basePath);
+
+  iput(mip);
+  iput(pip);
+
+  return 1;
+}
+
+int mystat(char *path, char *parameter)
+{
+  struct stat mystat;
+
+  int ino;
+  MINODE *mip;
+
+//get INODE of pathname into a minode;
+  ino = getino(&dev, pathname);
+  mip = iget(dev, ino);
+//copy (dev, ino) of minode to (st_dev, st_ino) of the STAT structure in user space;
+  mystat.st_dev = dev;
+  mystat.st_ino = ino;
+//copy other fields of INODE to STAT structure in user space;
+  mystat.st_mode = mip->INODE.i_mode;
+  mystat.st_nlink = mip->INODE.i_links_count;
+  mystat.st_uid = mip->INODE.i_uid;
+  mystat.st_gid = mip->INODE.i_gid;
+  mystat.st_size = mip->INODE.i_size;
+  mystat.st_atime = mip->INODE.i_atime;
+  mystat.st_mtime = mip->INODE.i_mtime;
+  mystat.st_ctime = mip->INODE.i_ctime;
+  mystat.st_blksize = BLKSIZE;
+  mystat.st_blocks = mip->INODE.i_blocks;
+
+  printf("SET ALL THE VALUES\n");
+
+  printf("dev=%i\tino=%i\tmod=", mystat.st_dev, mystat.st_ino, mystat.st_mode);
+
+  printf( (S_ISDIR(mystat.st_mode)) ? "d" : "-");
+  printf( (mystat.st_mode & S_IRUSR) ? "r" : "-");
+  printf( (mystat.st_mode & S_IWUSR) ? "w" : "-");
+  printf( (mystat.st_mode & S_IXUSR) ? "x" : "-");
+  printf( (mystat.st_mode & S_IRGRP) ? "r" : "-");
+  printf( (mystat.st_mode & S_IWGRP) ? "w" : "-");
+  printf( (mystat.st_mode & S_IXGRP) ? "x" : "-");
+  printf( (mystat.st_mode & S_IROTH) ? "r" : "-");
+  printf( (mystat.st_mode & S_IWOTH) ? "w" : "-");
+  printf( (mystat.st_mode & S_IXOTH) ? "x" : "-");
+  printf("\n");
+
+  printf("uid=%d\tgid=%d\tnlink=%i\n", mystat.st_uid, mystat.st_gid, mystat.st_nlink);
+  printf("size=%i\ttime=%i\n", mystat.st_size, mystat.st_atime);
+  
+
+  iput(mip);
+
+  return 1;
 }
 
 //same algorithm as mkdir! slightly different.
@@ -1196,6 +1476,58 @@ int mylink(char *oldfile, char *newfile)
   
 }
 
+int mychmod(char *newMode, char *path)
+{
+  int octal_form, ino, i;
+  MINODE *mip;
+  
+  //check for neccessary input
+  if(strcmp(path, "") == 0)
+  {
+    printf("Please specify a proper filename/path\n");
+    return 0;
+  }
+  if(strcmp(newMode, "") == 0)
+  {
+    printf("Please specify a proper filename/path\n");
+    return 0;
+  }
+
+  //check for proper path
+  ino = getino(&dev, path);
+  if(ino == 0)
+  {
+    printf("The path you entered does not exist\n");
+    return 0;
+  }
+
+  mip = iget(dev, ino);
+
+  //attempt to convert the string to a number to see if it is in octal form
+  octal_form = atoi(newMode);
+  
+  //if atoi returns zero, failed to convert and not octal
+  if(octal_form != 0)
+  {
+    
+  }
+  else
+  {
+    printf("Please enter permissions in octal form\n");
+    iput(mip);
+  }
+  
+  //touch inode since we have modified it
+  mip->INODE.i_atime = time(NULL);
+  mip->INODE.i_mtime = time(NULL);
+  //mark as dirty
+  mip->dirty = 1;
+  //no longer using mip
+  iput(mip);
+
+  return 1;
+}
+
 //create a new file & inode, point to same inumber as the old file
 //link across file systems or to directories
 int mysymlink(char *path, char *parameter){}
@@ -1211,8 +1543,7 @@ int myquit(char *path, char *parameter)
   exit(1);
 }
 
-int mystat(char *path, char *parameter){}
-int mychmod(char *path, char *parameter){}
+
 int mychown(char *path, char *parameter){}
 int mychgrp(char *path, char *parameter){}
 
