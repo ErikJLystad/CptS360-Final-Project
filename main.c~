@@ -1104,46 +1104,67 @@ int truncate(MINODE *mip)
 {
   char buffer1[BLKSIZE], buffer2[BLKSIZE];
   int i, a, b;
+
   //deallocate the direct blocks first
   for(i = 0; i < 12; i++) 
   {
     if(mip->INODE.i_block[i] == 0)
     {
-      continue; //No need to deallocate, don't waste runtime
+      //No need to deallocate, don't waste runtime
+      continue; 
     }
-    bdealloc(mip->dev, mip->INODE.i_block[i]); //deallocate this direct block
+    //deallocate this direct block
+    bdealloc(mip->dev, mip->INODE.i_block[i]); 
   }
   //Now deallocate the indirect blocks
   if(mip->INODE.i_block[12] != 0)
   {
-    get_block(mip->dev, mip->INODE.i_block[12], buffer1); //Gain access to the 256 indirect blocks pointed to by iblock[12]
-    for(a = 0; a < 256; a++) //loop through all the indrect blocks
+    //Gain access to the 256 indirect blocks pointed to by iblock[12]
+    get_block(mip->dev, mip->INODE.i_block[12], buffer1); 
+    //loop through all the indrect blocks
+    for(a = 0; a < 256; a++) 
     {
       if(buffer1[a] == 0)
         {
           continue;
         }
-      bdealloc(mip->dev, buffer1[a]); //deallocate the indirect block
+      //deallocate the indirect block
+      bdealloc(mip->dev, buffer1[a]); 
     }
   }
   
   //Now deallocate the double indirect blocks
   if(mip->INODE.i_block[13] != 0)
   {
-    get_block(mip->dev, mip->INODE.i_block[13], buffer1); //gain acess to the first level of 256 blocks in iblock[13]. Each has 256 blocks inside them...
-    for(a = 0; a < 256; a++) //loop through this first level of blocks
+    //gain acess to the first level of 256 blocks in iblock[13]. Each has 256 blocks inside them...
+    get_block(mip->dev, mip->INODE.i_block[13], buffer1); 
+    //loop through this first level of blocks
+    for(a = 0; a < 256; a++) 
     {
-      get_block(mip->dev, buffer1[a], buffer2); //gain access to each first level blocks second level of 256 blocks
-      for(b = 0; b <256; b++) //loop through that particular second level of 256 blocks. These are the double indirect blocks we want
+      //gain access to each first level blocks second level of 256 blocks
+      get_block(mip->dev, buffer1[a], buffer2); 
+      //loop through that particular second level of 256 blocks. These are the double indirect blocks we want
+      for(b = 0; b <256; b++) 
       {
         if(buffer1[a] == 0)
         {
           continue;
         }
-        bdealloc(mip->dev, buffer1[a]); //Deallocate the double indirect block
+        //Deallocate the double indirect block
+        bdealloc(mip->dev, buffer1[a]); 
       }
     }
   }
+
+  //touch
+  mip->INODE.i_atime = time(NULL);
+  mip->INODE.i_mtime = tine(NULL);
+  //mark dirty now
+  mip->dirty = 1;
+  //fully deallocated, so set the size
+  mip->INODE.i_size = 0;
+
+  return 1;
 }
 
 int myunlink(char *path, char *parameter)
@@ -1398,17 +1419,7 @@ int mychmod(char *newMode, char *path)
   //if atoi returns zero, failed to convert and not octal
   if(octal_form != 0)
   {
-    for(i = 0; i < 9; i++)
-    {
-      if(octal_form & (1 << i))
-        {
-          mip->INODE.i_mode |= (1 << i);
-        }
-      else
-        {
-          mip->INODE.i_mode &= ~(1 << i);
-        }
-    }
+    
   }
   else
   {
