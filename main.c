@@ -365,7 +365,7 @@ int iput(MINODE *mip)
   mip->refCount--;
   if(mip->refCount > 0 || mip->dirty == 0)
   {
-    printf("iput: not doing the thing, refCount = %d\n", mip->refCount);
+    //printf("iput: not doing the thing, refCount = %d\n", mip->refCount);
     return;
   }
   if(mip->refCount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
@@ -657,20 +657,12 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
     
     while(block_position < BLKSIZE)
     {
-      printf("hello\n");
       ideal_length = 4 * ((8 + dir->name_len + 3) / 4); //multiples of 4
-      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
       remaining_space = dir->rec_len + ideal_length;
-
-      printf("ideal_length = %d, remaining space = %d\n", ideal_length, remaining_space);
-
-      //print dir entries to see what they are
-      printf("block_position = %d\n", block_position);
       printf("dir->name = %s\tdp->rec_len = %d\n", dir->name, dir->rec_len);
 
       if(dir->rec_len > ideal_length)
       {
-        printf("in if statement\n");
         //resize the current last entry
         dir->rec_len = ideal_length;
         
@@ -718,7 +710,6 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
 
   //write the block back to the device
   put_block(parent->dev, parent->INODE.i_block[i], buffer); 
-  printf("here\n");
   return 1;
 }
 
@@ -737,8 +728,6 @@ int myls(char *path, char *parameter)
   }
   if(path[0] == '/') //if path is absolute
     dev = root->dev;
-    
-  printf("dev = %d\n", dev);
 
   inumber = getino(&dev, path); //get this specific path
 
@@ -797,7 +786,7 @@ int myls(char *path, char *parameter)
         printf("   %d  %d  %d  %d\t%d\t%s\n", mip->INODE.i_links_count, mip->INODE.i_uid, mip->INODE.i_gid, 
            mip->INODE.i_mtime, mip->INODE.i_size, dir->name);
 
-        printf("dir->rec_len = %d, position = %d\n", dir->rec_len, block_position);
+        //printf("dir->rec_len = %d, position = %d\n", dir->rec_len, block_position);
         iput(current_mip); //write the minode back to the disk
     
         //move rec_len bytes
@@ -826,7 +815,7 @@ int mount_root()  // mount root file system, establish / and CWDs
   if(dev < 0)
   {
     printf("Could not open %s\n", diskName);
-    return 0;
+    exit(1);
   }
 
   //read SUPER block to verify it's an EXT2 FS
@@ -842,8 +831,7 @@ int mount_root()  // mount root file system, establish / and CWDs
     return 0;
   }
 
-  printf("magic: %d bmap: %d imap: %d iblock: %d\n",
-    sp->s_magic, gp->bg_block_bitmap, gp->bg_inode_bitmap, gp->bg_inode_table);
+  
   
 
   
@@ -859,8 +847,10 @@ int mount_root()  // mount root file system, establish / and CWDs
   strcpy(root->name, "/");
 
   //root = mount_table[0].mounted_inode;
-  printf("root %s has been mounted.\n", root->name);
-  printf("nblocks: %d    free blocks: %d \nnum inodes: %d    free inodes: %d\n",
+  printf("\nRoot %s has been successfully mounted.\n", root->name);
+  printf("magic: %d\tbmap: %d\timap: %d\tiblock: %d\n",
+    sp->s_magic, gp->bg_block_bitmap, gp->bg_inode_bitmap, gp->bg_inode_table);
+  printf("nblocks: %d\tfree blocks: %d\tnum inodes: %d\tfree inodes: %d\n",
     sp->s_blocks_count, gp->bg_free_blocks_count, sp->s_inodes_count, gp->bg_free_inodes_count);
 
   //initialize globals
