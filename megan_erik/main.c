@@ -236,11 +236,10 @@ bdealloc(int dev, int block_index) //deallocates an block number
 int getino(int *device, char *path) //int ino = getino(&dev, pathname) essentially returns (dev,ino) of a pathname
 {
   int i = 0, inumber, blocknumber;
-  INODE *ip = &(root->INODE);
+  MINODE *mip = root;
   char *dname, *copy = path, *cwd_name = running->cwd->name;
-  char buffer[1024];
 
-  printf("getino: path = %s\n", path);
+  printf("getino: path = %s\n");
 
   if(strcmp(path, "/") == 0)
     return root->ino;
@@ -263,16 +262,14 @@ int getino(int *device, char *path) //int ino = getino(&dev, pathname) essential
   //2. find and return ino
   for (i = 0; i < num_tokens; i++) //n is number of steps in pathname
   {
-    inumber = inode_search(ip, dname);  
+    inumber = search(mip, dname);  
     if (inumber < 1) //: inumber not found
     {
       printf("inode could not be found\n");
       return 0;
     }
-    
-    blocknumber = ((inumber -1) / 8) + 10;
-    get_block(dev, blocknumber, buffer);
-    ip = (INODE *)buffer + (inumber - 1) % 8;
+    inumber = search(mip, tokenized_pathname[i]);
+    mip = iget(dev, inumber);
   }
 
  printf("getino: inumber = %d\n", inumber);
@@ -293,7 +290,6 @@ int search(MINODE *mip, char *name)
 
   for(i = 0; i < 12; i++)
   {
-    block_position = 0;
     if(mip->INODE.i_block[i] == 0)
     {
       printf("search: returning 0\n");
@@ -321,41 +317,6 @@ int search(MINODE *mip, char *name)
   return 0;
 }
 
-int inode_search(INODE * inodePtr, char * name)
-{
-  char buffer[1024];
-
-  get_block(dev, inodePtr->i_block[0], buffer);
-
-  //read the block into buf 
-  //let DIR *dp and char *cp BOTH point at buf
-  DIR *dir = (DIR *)buffer;
-  char *cp = buffer;
-
-  printf("\n********Root Directory Entries******\n");
-  printf("  inode  rec_len  name_len  name\n");
-
-  // search for name string in the data blocks of this INODE
-  int i = 0;
-  do
-  {
-    printf("    %d      %d       %d       %s\n", dir->inode, dir->rec_len, dir->name_len, dir->name);
-    if(strcmp(dir->name, name) == 0)
-    {
-      printf("\ninumber for %s has been found: %d\n", dir->name, dir->inode);
-      return dir->inode;
-    }
-    else
-    {
-      cp += dir->rec_len; //advance cp by rec_len bytes
-      dir = (DIR *)cp; //pull dir along to the next record
-    }
-  }while(strcmp(dir->name, "") != 0);
-
-  //if we've gotten here, the name wasn't found
-  return 0;   
-}
-
 //This function releases a Minode[] pointed by mip.
 int iput(MINODE *mip)
 {
@@ -365,7 +326,7 @@ int iput(MINODE *mip)
   mip->refCount--;
   if(mip->refCount > 0 || mip->dirty == 0)
   {
-    printf("iput: not doing the thing, refCount = %d\n", mip->refCount);
+    printf("iput: not doing the thing\n");
     return;
   }
   if(mip->refCount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
@@ -561,8 +522,6 @@ void enter_name(int dev, int ino, int mode, int uid, int gid, int size)
   {
     mip->INODE.i_block[i] = 0;
   }
-
-  iput(mip);
 }
 
 int make_dir(char *pathname, char *parameter)
@@ -725,7 +684,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
 int myls(char *path, char *parameter)
 {
   int inumber, dev = running->cwd->dev, i = 0, bnumber, block_position;
-  MINODE *mip = running->cwd, *current_mip;
+  MINODE *mip = running->cwd;
   char buffer[BLKSIZE], *string_position, *mtime;
   DIR *dir;
  
@@ -769,18 +728,18 @@ int myls(char *path, char *parameter)
       {
         //get current minode 
         //printf("dev: %d dir->inode: %d\n", dev, dir->inode);
-        current_mip = iget(dev, dir->inode);
+        mip = iget(dev, dir->inode);
 
         //print file type
         if(is_dir(mip))
-          printf("\nd ");
+          printf("d ");
         else if(is_reg_file(mip))
-          printf("\nr ");
+          printf("r ");
         else 
-          printf("\ns ");
+          printf("s ");
 
         //print permissions
-        printf((mip->INODE.i_mode & 0x0100) ? "r" : "-");
+        printf((mip->INODE.i_mode & 0x0100) ? "r" : " -");
     	printf((mip->INODE.i_mode & 0x0080) ? "w" : "-");
     	printf((mip->INODE.i_mode & 0x0040) ? "x" : "-");
     	printf((mip->INODE.i_mode & 0x0020) ? "r" : "-");
@@ -797,8 +756,7 @@ int myls(char *path, char *parameter)
         printf("   %d  %d  %d  %d\t%d\t%s\n", mip->INODE.i_links_count, mip->INODE.i_uid, mip->INODE.i_gid, 
            mip->INODE.i_mtime, mip->INODE.i_size, dir->name);
 
-        printf("dir->rec_len = %d, position = %d\n", dir->rec_len, block_position);
-        iput(current_mip); //write the minode back to the disk
+        iput(mip); //write the minode back to the disk
     
         //move rec_len bytes
         block_position += dir->rec_len;
@@ -808,7 +766,6 @@ int myls(char *path, char *parameter)
 
         //strcpy(mtime, "");
       }
-      iput(mip);
     }
     return 1;
   
@@ -888,20 +845,6 @@ char* getParentPath()
   return str;
 }
 
-rm_child(MINODE *pip, char *name)
-{
-  char buffer[BLKSIZE];
-  int i;
-
-  for(i = 0; i < 12; i++)
-  {
-    if(pip->INODE.i_block[i] == 0)
-      return 0;
-    
-    
-  }
-}
-
 int myrmdir(char *path, char *parameter)
 {
   MINODE *pip, *mip;
@@ -971,15 +914,12 @@ int myrmdir(char *path, char *parameter)
 
 }
 
-//TODO: FINISH THIS FUNCTION
-/*
 int rm_child(MINODE *parent, char *name)
 {
   int searchResult;
   searchResult = search(parent, name);
   
 }
-*/
 
 int mycd(char *path, char *parameter)
 {
@@ -1000,7 +940,6 @@ int mycd(char *path, char *parameter)
     startPoint = iget(dev, ino); //get the MINODE pointer
     strcpy(startPoint->name, path); //add the name to the MINODE pointer
     running->cwd = startPoint; //set the cwd to the MINODE pointer
-    iput(startPoint);
   }
 
   return 1;
@@ -1030,93 +969,17 @@ int mypwd(char *path, char *parameter)
   printf("%s\n", running->cwd->name);
 }
 
-//TODO: WRITE THIS FUNCTION
-int truncate(MINODE *mip)
-{
-  
-}
-
 int myunlink(char *path, char *parameter)
-{
-  int ino, parentIno;
-  MINODE *mip, *pip;
-  char *parentPath, *basePath;
-
-  strcpy(parentPath,getParentPath(path));
-  strcpy(basePath, basename(path));
-
-  //Get the pathnames INODE
-  ino = getino(&dev, path);
-  mip = iget(dev, ino);
-
-  //Check that it is a file
-  if(is_reg_file(mip) == 0 || is_symlink_file(mip) == 0) //not a file type
-  {
-    printf("%s is not a file\n", basename(path));
-    return 0;
-  }
-
-  mip->INODE.i_links_count--; //decrement the inodes link count
-
-  if(mip->INODE.i_links_count == 0)
-  {
-    //deallocate the pathnames data blocks
-    truncate(mip);
-    
-    //deallocate the pathnames INODE
-    idealloc(dev, mip->ino); 
-  }
-
-  parentIno = getino(&dev, parentPath);
-  pip = iget(dev, parentIno);
-  rm_child(pip, basePath);
-
-  return 1;
-}
-
-
-
-int execute_stat(char *pathname, stat *st)
 {
   int ino;
   MINODE *mip;
 
-//get INODE of pathname into a minode;
-  ino = getino(&dev, pathname);
+  //1. Get the pathnames INODE
+  ino = getino(&dev, path);
   mip = iget(dev, ino);
-//copy (dev, ino) of minode to (st_dev, st_ino) of the STAT structure in user space;
-  st->st_dev = dev;
-  st->st_ino = ino;
-//copy other fields of INODE to STAT structure in user space;
-  st->st_mode = mip->INODE.i_mode;
-  st->st_nlink = mip->INODE.i_links_count;
-  st->st_uid = mip->INODE.i_uid;
-  st->st_gid = mip->INODE.i_gid;
-  st->st_size = mip->INODE.i_size;
-  st->st_atime = mip->INODE.i_atime;
-  st->st_mtime = mip->INODE.i_mtime;
-  st->st_ctime = mip->INODE.i_ctime;
-  st->st_blksize = BLKSIZE;
-  st->st_blocks = mip->INODE.i_blocks;
 
-  printf("dev=%d\tino=%d\tmod=%s\n", st->st_dev, st->st_ino, st->st_mode);
-  printf("uid=%d\tgid=%d\tnlink=%d\n", st_uid, st_gid, st_nlink);
-  printf("size=%d\ttime=%s\n", st_size, st_atime);
-
-  if(iput(mip) == 0) //iput failed
-    return 0;
-
-  return 1;
-}
-
-int mystat(char *path, char *parameter)
-{
-  struct stat mystat, *st;
-  st = &mystat;
-
-  execute_stat(path, st);
-
-  return 1;
+  //2. Check that it is a file
+  if((mip->INODE.i_mode & 0x4000) == 0x4000){}
 }
 
 //same algorithm as mkdir! slightly different.
@@ -1255,7 +1118,12 @@ int myquit(char *path, char *parameter)
 {
   int i = 0;
   
-  iput(root);
+  for(i = 0; i < NMINODES; i++)
+  {
+    minode[i].refCount = 1;
+    minode[i].dirty = 1;
+    iput(&minode[i]);
+  }
 
   printf("Goodbye!\n");
   exit(1);
