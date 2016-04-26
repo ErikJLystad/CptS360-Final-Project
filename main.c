@@ -3,7 +3,7 @@
 
 //used http://wiki.osdev.org/Ext2#Directory_Entry as a reference for EXT2
 
-//Erik: mount_root*, rmdir*, cd*, chmod, unlink*, stat*, touch*, close, write
+//Erik: mount_root*, rmdir*, cd*, chmod*, unlink*, stat*, touch*, close, write
 //Megan: mkdir*, ls*, pwd*, link*, symlink, creat*, open, read, lseek, cp
 //whoever: cat, mv
 
@@ -364,20 +364,25 @@ int iput(MINODE *mip)
   if(mip->refCount > 0 || mip->dirty == 0)
   {
     //printf("iput: not doing the thing, refCount = %d\n", mip->refCount);
-    return;
+    return 0;
   }
-  if(mip->refCount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
+  else if(mip->refCount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
   {
+    //printf("iput: doing the thing, refCount = %d\n", mip->refCount);
+
     //Writing Inode back to disk
-    block = (mip->ino - 1) / 8 + INODEBLOCK;
+    block = (mip->ino - 1) / 8 + 10; //10 = inodes begin block number
     offset = (mip->ino -1) % 8;
     
     //read block into buf
     get_block(dev, block, buffer);
-    position = buffer + offset * 128;
+    position = buffer + offset * 128;  //128 is 
     memcpy(position, &(mip->INODE), 128);
-    put_block(mip->dev, block, buffer);
+    
+    //printf("dev = %d mip->INODE.mode = %d\n", dev, mip->INODE.i_mode);
+    put_block(dev, block, buffer);
   }
+  return 1;
 }
 
 int findino(MINODE *mip, int *myino, int *parentino)
@@ -611,7 +616,7 @@ int make_dir(char *pathname, char *parameter)
   create_dir_entry(parent_minode, inumber, child, EXT2_FT_DIR); //give it a dir entry
 
   //populate mip->INODE with things
-  enter_name(dev, inumber, EXT2_FT_DIR, running->uid, running->gid, 1024);
+  enter_name(dev, inumber, DIR_MODE, running->uid, running->gid, 1024);
 
   //load the freshly created inode into memory
   new_minode = iget(dev, inumber); 
@@ -716,7 +721,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
   return 1;
 }
 
-int myls(char *path, char *parameter)
+int myls (char *path, char *parameter)
 {
   int inumber, dev = running->cwd->dev, i = 0, bnumber, block_position;
   MINODE *mip = running->cwd, *current_mip;
@@ -1342,7 +1347,7 @@ int mystat(char *path, char *parameter)
   printf("\n");
 
   printf("uid=%d\tgid=%d\tnlink=%i\n", mystat.st_uid, mystat.st_gid, mystat.st_nlink);
-  printf("size=%i\ttime=%i\n", mystat.st_size, mystat.st_atime);
+  printf("size=%i\ttime=%i\n", mystat.st_size, mystat.st_mtime);
   
 
   iput(mip);
