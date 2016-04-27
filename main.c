@@ -202,17 +202,20 @@ int balloc(int dev) //allocate a free data block, return its bnumber
 
   //get the bmap block
   get_block(dev, bmap, buffer);
+  printf("bmap = %d, nblocks = %d\n", bmap, nblocks);
   
-  for(i = 0; i < nblocks; i++) //look through all blocks
+  for(i = 0; i < 1440; i++) //look through all blocks
   {
     if(get_bit(buffer, i) == 0) //if this block is free
     {
       set_bit(buffer, i, 1); //make it not free
       dec_free_blocks(dev); //update super and gd blocks
-      put_block(dev, nblocks, buffer); //write block back to device
+      put_block(dev, bmap, buffer); //write block back to device
       return i;
     }
   }
+  //put_block(dev, nblocks, buffer); //write block back to device
+  printf("balloc(): no more free blocks\n");
   return 0;
 }
 
@@ -367,12 +370,12 @@ int iput(MINODE *mip)
   mip->refCount--;
   if(mip->refCount > 0 || mip->dirty == 0)
   {
-    //printf("iput: not doing the thing, refCount = %d\n", mip->refCount);
+    printf("iput: not doing the thing, refCount = %d\n", mip->refCount);
     return 0;
   }
   else if(mip->refCount == 0 && mip->dirty == 1) //ASK KC ABOUT THIS LOGIC
   {
-    //printf("iput: doing the thing, refCount = %d\n", mip->refCount);
+    printf("iput: doing the thing, refCount = %d\n", mip->refCount);
 
     //Writing Inode back to disk
     block = (mip->ino - 1) / 8 + 10; //10 = inodes begin block number
@@ -573,14 +576,16 @@ void enter_name(int dev, int ino, int mode, int uid, int gid, int size)
     mip->INODE.i_block[i] = 0;
   }
 
+  mip->dirty = 1;
   iput(mip);
 }
 
 int make_dir(char *pathname, char *parameter)
 {
-  char *parent, *child, *temp_path;
-  int inumber, parent_inumber;
+  char *parent, *child, *temp_path, buffer[1024], *string_position;
+  int inumber, parent_inumber, bnumber;
   MINODE *parent_minode, *new_minode;
+  DIR *dir;
 
   temp_path = strdup(pathname); //prepare for destruction 
   parent = dirname(temp_path);
@@ -617,27 +622,60 @@ int make_dir(char *pathname, char *parameter)
   }
 
   inumber = ialloc(dev); //allocate the space for a new inode
+  bnumber = balloc(dev);
+  printf("@@@@@%d\n",bnumber);
   create_dir_entry(parent_minode, inumber, child, EXT2_FT_DIR); //give it a dir entry
-
-  //populate mip->INODE with things
-  enter_name(dev, inumber, DIR_MODE, running->uid, running->gid, 1024);
 
   //load the freshly created inode into memory
   new_minode = iget(dev, inumber); 
   new_minode->INODE.i_links_count++;
- 
+  strcpy(new_minode->name, child);
+
+  //populate mip->INODE with things
+  enter_name(dev, inumber, DIR_MODE, running->uid, running->gid, 1024);
 
   //create . and .. entries for the new dir
-  create_dir_entry(new_minode, inumber, ".", EXT2_FT_DIR);
-  create_dir_entry(new_minode, parent_minode->ino, "..", EXT2_FT_DIR);
+  //create_dir_entry(new_minode, inumber, ".", EXT2_FT_DIR);
+  //create_dir_entry(new_minode, parent_minode->ino, "..", EXT2_FT_DIR);
+  
+  
+  //MINODE *dots_mip = iget(dev, dir->inode);
+  new_minode->INODE.i_block[0] = bnumber;  
+  new_minode->dirty = 1;
+
+  iput(new_minode);
+  
+  get_block(dev, bnumber, buffer);
+  
+  dir = (DIR *)buffer;
+  string_position = (char *)dir;
+
+
+  dir->inode = inumber;
+  dir->rec_len = 12;
+  dir->name_len = 1;         //name_len
+  dir->file_type = EXT2_FT_DIR;  //file_type
+  strcpy(dir->name, ".");       //name
+
+  string_position += dir->rec_len;
+  dir = (DIR *)string_position;
+
+  dir->inode = parent_inumber;
+  dir->rec_len = 1012;
+  dir->name_len = 2;         //name_len
+  dir->file_type = EXT2_FT_DIR;  //file_type
+  strcpy(dir->name, "..");       //name
+
+  put_block(dev, bnumber, buffer);
 
   //update the proud parent
   parent_minode->INODE.i_atime = parent_minode->INODE.i_mtime = time(0);
   parent_minode->INODE.i_links_count++;
 
   //release minode pointers, write back to block
+  parent_minode->dirty = 1;
   iput(parent_minode); 
-  iput(new_minode);
+  
     
    return 0;
 }
@@ -732,7 +770,7 @@ int myls (char *path, char *parameter)
   char buffer[BLKSIZE], *string_position, *mtime;
   DIR *dir;
  
-  printf("ls: path = %s\n", path);
+  printf("ls: path = .%s.\n", path);
   if(path == NULL || strcmp(path, "") == 0) 
   {
     path = mip->name;
@@ -865,6 +903,7 @@ int mount_root()  // mount root file system, establish / and CWDs
   //initialize globals
   imap = gp->bg_inode_bitmap;
   bmap = gp->bg_block_bitmap;
+ 
   ninodes = sp->s_blocks_count;
 
   //Let cwd of both P0 and P1 point at the root minode (refCount=3)
