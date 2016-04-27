@@ -37,6 +37,7 @@ int get_block(int fd, int blk, char buffer[ ]) //credit to KCW
 
 int put_block(int fd, int blk, char buffer[ ]) //credit to KCW
 {
+  printf("put_block was passed fd = %d and blk = %d\n", fd, blk);
   lseek(fd, (long)blk*BLKSIZE, 0);
   write(fd, buffer, BLKSIZE);
 }
@@ -766,7 +767,7 @@ int create_dir_entry(MINODE *parent, int inumber, char *name, int type)
   return 1;
 }
 
-int myls (char *path, char *parameter)
+int myls(char *path, char *parameter)
 {
   int inumber, dev = running->cwd->dev, i = 0, bnumber, block_position;
   MINODE *mip = running->cwd, *current_mip;
@@ -953,11 +954,12 @@ rm_child(MINODE *pip, char *name)
           //reallocate the space after removal
           previous->rec_len += current->rec_len; 
           //write the parents data block back
+          printf("calling put_block in rm_child\n");
           put_block(pip->dev, pip->INODE.i_block[i], buffer);
 
           return 1;
         }
-        printf("Done with first while loop of rm_child...\n");
+        printf("Done with finding match...\n");
         //if the match found is not in the last entry...
 
         //set the previous dir to the one we just went through
@@ -982,10 +984,11 @@ rm_child(MINODE *pip, char *name)
           previous->file_type = current->file_type;
           strcpy(previous->name, current->name);
         
-          //add the leftover space to the previous dir to keep things even
+          //add the leftover space to the previous dir
           if(prev_block_position + current->rec_len == BLKSIZE)
           {
             previous->rec_len += leftover_space;
+            printf("Calling put_block in rm_child to add leftover space\n");
             put_block(pip->dev, pip->INODE.i_block[i], buffer);
           }
         
@@ -1033,7 +1036,7 @@ int myrmdir(char *path, char *parameter)
   //get the minode[] pointer
   mip = iget(dev, ino);
   
-  printf("Checking priveleges...\n");
+  printf("Checking ownership...\n");
   //we only check access priveleges if it's not the super user
   if(running->uid != 0) 
   {
@@ -1097,20 +1100,27 @@ int myrmdir(char *path, char *parameter)
   for (i = 0; i < 12; i++) 
   {
     if (mip->INODE.i_block[i]==0)
+    {
       continue;
+    }
     //deallocate the blocks
+    printf("Calling bdealloc in rmdir:\n");
     bdealloc(mip->dev, mip->INODE.i_block[i]); 
   }
   //Now deallocate the inode
+  printf("Calling idealloc in rmdir:\n");
   idealloc(mip->dev, mip->ino); 
   printf("Deallocated the directory blocks and inode\n");
-  //reduce mip->refCount, no longer being used
-  //iput(mip); 
   
   //get the parent inode
   //findino(mip, &ino, &parentIno);
   parentIno = search(mip, ".."); 
   printf("parentIno for rmdir = %d\n", parentIno);
+
+  //reduce mip->refCount, no longer being used
+  mip->dirty = 1;
+  iput(mip); 
+
   //get the parent MINODE pointer
   pip = iget(dev, parentIno); 
   printf("Entering rm_child()...\n");
@@ -1125,10 +1135,8 @@ int myrmdir(char *path, char *parameter)
   pip->INODE.i_mtime = time(NULL);
   
   //mark pip as dirty
-  pip->dirty = 1; 
-  mip->dirty = 1;
+  pip->dirty = 1;
   //reduce refCount
-  iput(mip);
   iput(pip); 
   
   return 1;
@@ -1326,18 +1334,19 @@ int myunlink(char *path, char *parameter)
 {
   int ino, parentIno;
   MINODE *mip, *pip;
-  char *parentPath, *basePath, *path_cpy;
+  char *parentPath, *basePath, path_cpy[128];
 
   strcpy(path_cpy, path);
-  strcpy(parentPath, dirname(path_cpy));
-  strcpy(basePath, basename(path));
+  parentPath = dirname(path_cpy);
+  strcpy(path_cpy, path);
+  basePath = basename(path_cpy);
 
   //Get the pathnames INODE
   ino = getino(&dev, path);
   mip = iget(dev, ino);
 
   //Check that it is a file
-  if(is_reg_file(mip) == 0 || is_symlink_file(mip) == 0) //not a file type
+  if(is_reg_file(mip) == 0 && is_symlink_file(mip) == 0) //not a file type
   {
     printf("%s is not a file\n", basename(path));
     return 0;
@@ -1347,17 +1356,25 @@ int myunlink(char *path, char *parameter)
 
   if(mip->INODE.i_links_count == 0)
   {
+    printf("unlink: Entering truncate\n");
     //deallocate the pathnames data blocks
     truncate(mip);
-    
+    printf("unlink: Leaving truncate\n");
     //deallocate the pathnames INODE
     idealloc(dev, mip->ino); 
   }
-
+  printf("Getting parent ino with parentPath = %s\n", parentPath);
+  if(strcmp(parentPath, ".") == 0)
+  {
+    printf("NEED TO CHANGE\n");
+    parentPath ="/";
+  }
   parentIno = getino(&dev, parentPath);
+  printf("Getting parent MINODE\n");
   pip = iget(dev, parentIno);
+  printf("unlink: Entering rm_child\n");
   rm_child(pip, basePath);
-
+  printf("unlink: Leaving rm_child\n");
   iput(mip);
   iput(pip);
 
