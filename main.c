@@ -1512,7 +1512,7 @@ int mylink(char *oldfile, char *newfile)
 
 int mychmod(char *newMode, char *path)
 {
-  int octal_form, ino, i, file_mode;
+  int octal_form = -1, ino, i, file_mode;
   MINODE *mip;
   
   //check for neccessary input
@@ -1543,6 +1543,7 @@ int mychmod(char *newMode, char *path)
   //if atoi returns zero, failed to convert and not octal
   if(octal_form != 0)
   {
+    printf("It is in octal form: %d\n", octal_form);
     file_mode = 0xF000 & mip->INODE.i_mode;
     octal_form = CalculateMode(octal_form);
     mip->INODE.i_mode = octal_form | file_mode;
@@ -1566,20 +1567,25 @@ int mychmod(char *newMode, char *path)
 
 int CalculateMode(int octal_input)
 {
-  int i = 0, a =0, output = 0, remainder = 0, power_num = 0;
+  int a =0, output = 0, remainder = 0, power_num = 0;
+  double i = 0.0;
   for(i = 0; octal_input != 0; i++)
   {
     remainder = octal_input % 10;
     octal_input /= 10;
-    power_num = i*i;
-    for(a = 2; a < 9; a++)
+    /*for(a = 0; a < i; a++)
     {
-      power_num *= power_num;
-    }
-    //output += (int) (remainder * pow(8.0, (double)i));
-    output += power_num;
-    i++;
+      if(i == 1)
+      {
+        power_num += 8;
+      }
+      power_num *= 8;
+    }*/
+    output += (int)(remainder * pow(8.0, i));
+    //output += rem * power_num;
+    //i++;
   }
+  printf("Output = %d\n");
   return output;
 }
 
