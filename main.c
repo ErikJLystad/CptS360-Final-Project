@@ -255,11 +255,11 @@ int getino(int *device, char *path) //int ino = getino(&dev, pathname) essential
   }
 
   tokenize(path);
-  dname = dirname(copy);
+  //dname = dirname(copy);
   //printf("dname: %s\n\n", dname);
 
-  if(strcmp(dname, ".") == 0)
-    dname = "/";
+  //if(strcmp(dname, ".") == 0)
+    //dname = "/";
 
   //2. find and return ino
   for (i = 0; i < num_tokens; i++) //n is number of steps in pathname
@@ -287,7 +287,7 @@ int search(MINODE *mip, char *name)
   int i = 0, block_position = 0, block;
   char *copy, sbuf[BLKSIZE];
 
-  //printf("search: name = %s mip->name = %s dev = %d ino = %d\n", name, mip->name, mip->dev, mip->ino);
+  printf("search: name = %s mip->name = %s dev = %d ino = %d\n", name, mip->name, mip->dev, mip->ino);
 
   if(strcmp(name, "/") == 0)
     return root->ino;
@@ -297,7 +297,7 @@ int search(MINODE *mip, char *name)
     block_position = 0;
     if(mip->INODE.i_block[i] == 0)
     {
-      //printf("search: returning 0\n");
+      printf("search: returning 0\n");
       return 0;
     }
 
@@ -305,12 +305,12 @@ int search(MINODE *mip, char *name)
     dp = (DIR*)sbuf;
     copy = sbuf;
 
-    //printf("i_block[%d] = %d\n", i, mip->INODE.i_block[i]);
+    printf("i_block[%d] = %d\n", i, mip->INODE.i_block[i]);
 
     while(block_position < BLKSIZE)
     {
-      //printf("block_position = %d\n",block_position);
-      //printf("dp->name = %s\tdp->rec_len = %d\n", dp->name, dp->rec_len);
+      printf("block_position = %d\n",block_position);
+      printf("dp->name = %s\tdp->rec_len = %d\n", dp->name, dp->rec_len);
       if(strcmp(dp->name, name) == 0)
         return dp->inode;
 
@@ -387,8 +387,8 @@ int iput(MINODE *mip)
 
 int findino(MINODE *mip, int *myino, int *parentino)
 {
-  *myino = search(mip, ".");
-  *parentino = search(mip, "..");
+  myino = search(mip, ".");
+  parentino = search(mip, "..");
   return *myino;
 }
 
@@ -971,10 +971,11 @@ rm_child(MINODE *pip, char *name)
 int myrmdir(char *path, char *parameter)
 {
   MINODE *pip, *mip;
-  char *parentPath;
+  DIR *d;
+  char *parentPath, *location, temp_path, buffer[BLKSIZE];
   int parentIno, ino, i, block_position;
 
-  parentPath = dirname(path);
+  //parentPath = dirname(temp_path);
 
   printf("attempting to remove %s...\n", pathname);
 
@@ -983,6 +984,7 @@ int myrmdir(char *path, char *parameter)
   //get the minode[] pointer
   mip = iget(dev, ino);
   
+  printf("Checking priveleges...\n");
   //we only check access priveleges if it's not the super user
   if(running->uid != 0) 
   {
@@ -995,33 +997,36 @@ int myrmdir(char *path, char *parameter)
       }
   }
   
+  printf("Verifying directory type...\n");
   if(is_dir(mip) == 0) //check if it's not a directory
     {
       printf("rmdir: that's not a directory\n");
       return 0;
     }
+  printf("Checking directory is not busy...\n");
   if(mip->refCount > 1) //check if the directory is busy
     {
       printf("The directory is busy\n");
       return 0;
     }
   
-  //Ensure that it is not empty
-  char buffer[BLKSIZE];
+  //check that it is empty
     //go through all the data blocks
   for(i = 0; i < 12; i++)
   {
+    block_position = 0;
     //if the inode data block is 0 we need not bother with it
     if(mip->INODE.i_block[i] != 0)
     {
       //get the block and the directory info
       get_block(mip->dev, mip->INODE.i_block[i], buffer);
-      DIR *d = (DIR *)&buffer;
+      d = (DIR *)&buffer;
       //loop through the block
       while(block_position < BLKSIZE)
       {
         //if it doesn't equal . or .. then it is something else, meaning not empty
-        if (strcmp(d->name, ".") == 1 && strcmp(d->name, "..") == 1)
+        //printf("i_block[i] = %d\td->name = %s\n", mip->INODE.i_block[i], d->name);
+        if (strcmp(d->name, ".") != 0 && strcmp(d->name, "..") != 0)
         {
           printf("Not empty, can not remove\n");
           iput(mip);
@@ -1029,14 +1034,14 @@ int myrmdir(char *path, char *parameter)
           return 0;
         }
         //move forward in the block
-        char *location = (char *)d;
+        location = (char *)d;
         location += d->rec_len;
         block_position += d->rec_len;
         d = (DIR *)location;
       }
     }
   }
-  
+  printf("Directory is empty\n");
   //Deallocate all the directory's blocks and inode
     //loop through the blocks first
   for (i = 0; i < 12; i++) 
@@ -1052,8 +1057,9 @@ int myrmdir(char *path, char *parameter)
   iput(mip); 
   
   //get the parent inode
-  parentIno = getino(&dev, parentPath); 
-
+  //findino(mip, &ino, &parentIno);
+  parentIno = search(mip, ".."); 
+  printf("parentIno for rmdir = %d\n", parentIno);
   //get the parent MINODE pointer
   pip = iget(mip->dev, parentIno); 
   
