@@ -1422,10 +1422,7 @@ int mycreat(char *pathname, char *parameter)
   MINODE *parent_minode, *new_minode;
 
   temp_path = strdup(pathname); //prepare for destruction 
-  copy = strdup(running->cwd->name);
-
-  if(pathname[0] != '/')
-    parent = copy;
+  parent = dirname(temp_path);
 
   if(strcmp(parent, ".") == 0)
     parent = "/";
