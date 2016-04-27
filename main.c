@@ -1,3 +1,4 @@
+//Erik is very tired of this stuff...
 //Computer Science 360, Washington State University
 //Megan McPherson and Erik Lystad, April 2016
 
