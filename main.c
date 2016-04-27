@@ -1439,10 +1439,7 @@ int mycreat(char *pathname, char *parameter)
   MINODE *parent_minode, *new_minode;
 
   temp_path = strdup(pathname); //prepare for destruction 
-  copy = strdup(running->cwd->name);
-
-  if(pathname[0] != '/')
-    parent = copy;
+  parent = dirname(temp_path);
 
   if(strcmp(parent, ".") == 0)
     parent = "/";
@@ -1499,80 +1496,66 @@ int mycreat(char *pathname, char *parameter)
 //hardlink: create a new file, same inumber as the old file
 int mylink(char *oldfile, char *newfile) 
 {
-  int inumber, parent_inumber;
-  MINODE *mip, *parent_mip;
-  char *newfile_path, *newfile_name, *oldfile_name, *temp, copy[128], *buffer;
+  int source_inumber, parent_inumber;
+  MINODE *source_mip, *parent_mip;
+  char *newfile_path, *newfile_name, *oldfile_name, *temp_old, *temp_new, *oldfile_path, *buffer;
 
   //get an mip that represents oldfile
-  if(oldfile[0] != '/') //if oldfile is relative
-  {
-    strcpy(copy, running->cwd->name);
-    strcat(copy, "/");
-    oldfile_name = strcat(copy, oldfile); 
-  }
-  if(newfile[0] != '/') //if newfile is relative
-  {
-    strcpy(copy, running->cwd->name);
-    strcat(copy, "/");
-    newfile_name = strcat(copy, newfile);
-  }
-  
-  printf("running->cwd->name = %s\n", running->cwd->name);
-  printf("link: oldfile = %s, newfile = %s\n", oldfile, newfile);
-  inumber = getino(&dev, oldfile);
-  mip = iget(dev, inumber);
-  printf("got here\n");
+  temp_old = strdup(oldfile);
+  oldfile_path = dirname(temp_old);
+  temp_old = strdup(oldfile);
+  oldfile_name = basename(temp_old);
 
-  //check oldfile is reg or link file (symlink?)
-  if(is_dir(mip) == 1)
-  {
-    printf("link: file is not a regular or link file\n");
-    iput(mip);
-    return 0;
-  }
+  if(strcmp(oldfile_path, ".") == 0)
+    oldfile_path = "/";
 
-  //check newfile path exists, but dirname doesn't yet
-  strcpy(copy, newfile);
-  printf("copy = %s\n", copy);
-  newfile_path = dirname(copy);
-  printf("newfile_path = %s\n",newfile_path);
-  strcpy(copy, newfile);
-  printf("copy = %s\n", copy);
-  newfile_name = basename(copy);
-  printf("newfile_name = %s\n",newfile_name);
+  temp_new = strdup(newfile);
+  newfile_path = dirname(temp_new);
+  temp_new = strdup(newfile);
+  newfile_name = basename(temp_new);
+
   if(strcmp(newfile_path, ".") == 0)
-    {
-      newfile_path = "/";
-    }
+    newfile_path = "/";
+  
+  //printf("running->cwd->name = %s.\n", running->cwd->name);
+  printf("link: oldfile_name = %s, oldfile_path = %s\n", oldfile_name, oldfile_path);
+  printf("link: newfile_name = %s, newfile_path = %s\n", newfile_name, newfile_path);
+  
+  source_inumber = getino(&dev, oldfile_name);
+  source_mip = iget(dev, source_inumber);
 
-  printf("link: new path = %s, name = %s\n", newfile_path, newfile_name);
-
-  //if newfile path DNE or dirname already exists
-  if(search(root, newfile_path) == 0)
+  if(is_dir(source_mip) == 1) //check to see if source is valid
   {
-    printf("link: %s does not exist\n", newfile_path);
-    iput(mip);
-    return 0;
-  }
-  if(search(root, newfile) == 1)
-  {
-    printf("link: %s already exists\n", newfile);
-    iput(mip);
+    printf("link: that's a directory.\n");
+    iput(source_mip);
     return 0;
   }
 
-  //add an entry to the data block of newfile_path, same inumber
   parent_inumber = getino(&dev, newfile_path);
   parent_mip = iget(dev, parent_inumber);
+
+  if(is_dir(parent_mip) == 0)
+  {
+    printf("link: that's not a directory.\n");
+    iput(parent_mip);
+    iput(source_mip);
+    return 0;
+  }
+
+  if(search(parent_mip, newfile_name) > 0)
+  {
+    printf("link: new file already exists.\n");
+    iput(parent_mip);
+    iput(source_mip);
+    return 0;
+  }
+
+  create_dir_entry(parent_mip, source_inumber, newfile_name, EXT2_FT_REG_FILE);
   
+  source_mip->INODE.i_links_count++;
+  source_mip->dirty = 1;
   
-  create_dir_entry(parent_mip, mip->ino, newfile, EXT2_FT_REG_FILE);
-  enter_name(3, parent_mip->ino, FILE_MODE, 0, 0, 0);
-  
-  mip->INODE.i_links_count++; //increment links count
- 
-  //write inode back to disk
-  iput(mip);
+  iput(source_mip);
   iput(parent_mip);
 
   return 1;
@@ -1652,7 +1635,12 @@ int CalculateMode(int octal_input)
 //create a new file & inode, point to same inumber as the old file
 //link across file systems or to directories
 int mysymlink(char *path, char *parameter){}
-int mymenu(char *path, char *parameter){}
+
+int mymenu(char *path, char *parameter)
+{
+  printf("**********************Menu****************************\n");
+  printf("cd\t\tpwd\t\ttouch\nmkdir\t\trmdir\t\tls\ncreat\t\tstat\t\tmenu\nlink\t\tsymlink\t\tunlink\nquit\n");
+}
 
 int myquit(char *path, char *parameter)
 {
@@ -1689,7 +1677,8 @@ int main(int argc, char *argv[])
     strcpy(diskName, argv[1]);
   }
 
-  init(); //init() 
+  init(); //init()
+  mymenu("something", "nothing"); 
 
   while(1)
   {
