@@ -289,7 +289,7 @@ int search(MINODE *mip, char *name)
   int i = 0, block_position = 0, block;
   char *copy, sbuf[BLKSIZE];
 
-  printf("search: name = %s mip->name = %s dev = %d ino = %d\n", name, mip->name, mip->dev, mip->ino);
+  printf("search: name = %s, mip->name = %s, dev = %d, ino = %d\n", name, mip->name, mip->dev, mip->ino);
 
   if(strcmp(name, "/") == 0)
     return root->ino;
@@ -1008,6 +1008,7 @@ int myrmdir(char *path, char *parameter)
       return 0;
     }
   printf("Checking directory is not busy...\n");
+  printf("recCount of %s = %d\n", mip->name, mip->refCount);
   if(mip->refCount > 1) //check if the directory is busy
     {
       printf("The directory is busy\n");
@@ -1047,7 +1048,7 @@ int myrmdir(char *path, char *parameter)
   }
   printf("Directory is empty\n");
   //Deallocate all the directory's blocks and inode
-    //loop through the blocks first
+    //loop through the direct blocks first
   for (i = 0; i < 12; i++) 
   {
     if (mip->INODE.i_block[i]==0)
@@ -1057,8 +1058,9 @@ int myrmdir(char *path, char *parameter)
   }
   //Now deallocate the inode
   idealloc(mip->dev, mip->ino); 
+  printf("Deallocated the directory blocks and inode\n");
   //reduce mip->refCount, no longer being used
-  iput(mip); 
+  //iput(mip); 
   
   //get the parent inode
   //findino(mip, &ino, &parentIno);
@@ -1441,7 +1443,7 @@ int mylink(char *oldfile, char *newfile)
   {
     strcpy(copy, running->cwd->name);
     strcat(copy, "/");
-    oldfile_name = strcat(copy, oldfile);
+    oldfile_name = strcat(copy, oldfile); 
   }
   if(newfile[0] != '/') //if newfile is relative
   {
@@ -1474,7 +1476,9 @@ int mylink(char *oldfile, char *newfile)
   newfile_name = basename(copy);
   printf("newfile_name = %s\n",newfile_name);
   if(strcmp(newfile_path, ".") == 0)
-    newfile_path = "/";
+    {
+      newfile_path = "/";
+    }
 
   printf("link: new path = %s, name = %s\n", newfile_path, newfile_name);
 
@@ -1552,6 +1556,7 @@ int mychmod(char *newMode, char *path)
   {
     printf("Please enter permissions in octal form\n");
     iput(mip);
+    return 0;
   }
   
   //touch inode since we have modified it
@@ -1573,17 +1578,7 @@ int CalculateMode(int octal_input)
   {
     remainder = octal_input % 10;
     octal_input /= 10;
-    /*for(a = 0; a < i; a++)
-    {
-      if(i == 1)
-      {
-        power_num += 8;
-      }
-      power_num *= 8;
-    }*/
     output += (int)(remainder * pow(8.0, i));
-    //output += rem * power_num;
-    //i++;
   }
   printf("Output = %d\n");
   return output;
