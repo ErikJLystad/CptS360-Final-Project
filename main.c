@@ -403,12 +403,14 @@ int findino(MINODE *mip, int *myino, int *parentino)
 MINODE* iget(int dev, int ino)
 {
   char buffer[BLKSIZE];
-
   MINODE *mip;
-  //search MINODE array for inode
   int i = 0, blk, offset;
+
+  printf("Passed in ino %d into iget....\n", ino);
+  //search MINODE array for inode
   for(i = 0; i < NMINODES; i++)
   {
+    //printf("Now in for loop of iget\n");
     if(minode[i].refCount > 0 && minode[i].dev == dev && minode[i].ino == ino)
     {
       minode[i].refCount++;
@@ -427,9 +429,9 @@ MINODE* iget(int dev, int ino)
   //read blk into buf[]
   get_block(dev, blk, buffer); 
   ip = (INODE *)buffer + offset; 
-  //printf("ip->i_mode: %d, %d, %d, %d\n", ip->i_mode, ino, dev, blk);
+  printf("ip->i_mode: %d, %d, %d, %d\n", ip->i_mode, ino, dev, blk);
   mip->INODE = *ip;
-  //printf("\nis dir? %d\n", is_dir(mip));
+  printf("\nis dir? %d\n", is_dir(mip));
 
   //initialize fields of *mip
   mip->dev = dev;
@@ -924,7 +926,7 @@ rm_child(MINODE *pip, char *name)
   {
     if(pip->INODE.i_block[i] == 0)
       continue;
-    get_block(pip->dev, pip->INODE.i_block[i], buffer); //get the block for the currently searched directory directory
+    get_block(pip->dev, pip->INODE.i_block[i], buffer); //get the block for the currently searched directory 
     current = (DIR *)&buffer;
     location = (char *)current;
     
@@ -933,6 +935,7 @@ rm_child(MINODE *pip, char *name)
       //we have found a match to name
       if(strcmp(current->name, name) == 0) 
       {
+        printf("THE MATCH WAS FOUND!\n");
         //if match was in the last entry
         if(curr_block_position + current->rec_len == BLKSIZE) 
         {
@@ -954,7 +957,7 @@ rm_child(MINODE *pip, char *name)
 
           return 1;
         }
-
+        printf("Done with finding match...\n");
         //if the match found is not in the last entry...
 
         //set the previous dir to the one we just went through
@@ -979,7 +982,7 @@ rm_child(MINODE *pip, char *name)
           previous->file_type = current->file_type;
           strcpy(previous->name, current->name);
         
-          //add the leftover space to the previous dir to keep things even
+          //add the leftover space to the previous dir
           if(prev_block_position + current->rec_len == BLKSIZE)
           {
             previous->rec_len += leftover_space;
@@ -1016,15 +1019,17 @@ int myrmdir(char *path, char *parameter)
 {
   MINODE *pip, *mip;
   DIR *d;
-  char *parentPath, *location, temp_path, buffer[BLKSIZE];
+  char *parentPath, *location, *base, temp_path[128], buffer[BLKSIZE];
   int parentIno, ino, i, block_position;
-
+  
+  strcpy(temp_path, path);
+  base = basename(temp_path);
   //parentPath = dirname(temp_path);
 
-  printf("attempting to remove %s...\n", pathname);
+  printf("attempting to remove %s...\n", path);
 
   //get the inumber of the pathname
-  ino = getino(&dev, pathname);
+  ino = getino(&dev, path);
   //get the minode[] pointer
   mip = iget(dev, ino);
   
@@ -1107,11 +1112,11 @@ int myrmdir(char *path, char *parameter)
   parentIno = search(mip, ".."); 
   printf("parentIno for rmdir = %d\n", parentIno);
   //get the parent MINODE pointer
-  pip = iget(mip->dev, parentIno); 
-  
+  pip = iget(dev, parentIno); 
+  printf("Entering rm_child()...\n");
   //remove child entry from parent directory
-  rm_child(pip, tokenized_pathname[num_tokens]);
-
+  rm_child(pip, base);
+  printf("EXITING remove child\n");
   //decrement pips link count
   pip->INODE.i_links_count--; 
 
@@ -1121,7 +1126,7 @@ int myrmdir(char *path, char *parameter)
   
   //mark pip as dirty
   pip->dirty = 1; 
-  
+  mip->dirty = 1;
   //reduce refCount
   iput(mip);
   iput(pip); 
@@ -1173,7 +1178,7 @@ int mytouch(char *path, char *parameter)
   if(ino == 0)
   {
     printf("No such file exists\n");
-    creat(path, "megan loves jordan hoebag");
+    creat(path, "NewFile");
     ino = getino(&dev, path);
   }
 
@@ -1184,7 +1189,7 @@ int mytouch(char *path, char *parameter)
   mip->INODE.i_atime = time(NULL);
   mip->INODE.i_mtime = time(NULL);
   
-  //mark that the inode ahs been updated
+  //mark that the inode has been updated
   mip->dirty = 1; 
 
   iput(mip);
