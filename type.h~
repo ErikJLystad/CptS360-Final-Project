@@ -8,6 +8,7 @@
 #include <libgen.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 // define shorter TYPES, save typing efforts
 typedef struct ext2_group_desc  GD;
