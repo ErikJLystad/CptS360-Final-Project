@@ -1,0 +1,5 @@
+#!/bin/bash
+
+rm /home/megan/Documents/cs360/CptS360-Final-Project/diskimage
+cp /home/megan/Downloads/diskimage /home/megan/Documents/cs360/CptS360-Final-Project
+
