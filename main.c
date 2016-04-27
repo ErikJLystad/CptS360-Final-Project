@@ -1617,7 +1617,113 @@ int CalculateMode(int octal_input)
 
 //create a new file & inode, point to same inumber as the old file
 //link across file systems or to directories
-int mysymlink(char *path, char *parameter){}
+int mysymlink(char *oldfile, char *newfile)
+{
+  int source_inumber, parent_inumber, new_inumber, bnumber;
+  MINODE *source_mip, *parent_mip, *new_mip;
+  char *newfile_path, *newfile_name, *oldfile_name, *temp_old, *temp_new, *oldfile_path, buffer[1024], *string_position;
+  DIR *dir;
+
+  //get an mip that represents oldfile
+  temp_old = strdup(oldfile);
+  oldfile_path = dirname(temp_old);
+  temp_old = strdup(oldfile);
+  oldfile_name = basename(temp_old);
+
+  if(strcmp(oldfile_path, ".") == 0)
+    oldfile_path = "/";
+
+  temp_new = strdup(newfile);
+  newfile_path = dirname(temp_new);
+  temp_new = strdup(newfile);
+  newfile_name = basename(temp_new);
+
+  if(strcmp(newfile_path, ".") == 0)
+    newfile_path = "/";
+  
+  //printf("running->cwd->name = %s.\n", running->cwd->name);
+  printf("link: oldfile_name = %s, oldfile_path = %s\n", oldfile_name, oldfile_path);
+  printf("link: newfile_name = %s, newfile_path = %s\n", newfile_name, newfile_path);
+  
+  source_inumber = getino(&dev, oldfile_name);
+  source_mip = iget(dev, source_inumber);
+
+  printf("1\n");
+  if(is_dir(source_mip) == 1) //check to see if source is valid
+  {
+    printf("symlink: that's a directory.\n");
+    iput(source_mip);
+    return 0;
+  }
+
+  parent_inumber = getino(&dev, newfile_path);
+  parent_mip = iget(dev, parent_inumber);
+
+  printf("2\n");
+  if(is_dir(parent_mip) == 0) //check to see if link's path is a dir
+  {
+    printf("symlink: that's not a directory.\n");
+    iput(parent_mip);
+    iput(source_mip);
+    return 0;
+  }
+
+  printf("3\n");
+  if(search(parent_mip, newfile_name) > 0) //check to see if link already exists
+  {
+    printf("symlink: new file already exists.\n");
+    iput(parent_mip);
+    iput(source_mip);
+    return 0;
+  }
+
+  printf("got to here\n");
+  
+  mycreat(newfile_name, ""); //creat a new file for the soft link
+  
+  new_inumber = getino(&dev, newfile_name);
+  new_mip = iget(dev, new_inumber);
+
+  parent_mip->INODE.i_links_count++;
+  //parent_mip->INODE.i_atime = time(0);
+  parent_mip->dirty = 1;
+  iput(parent_mip);
+
+  //change new file's type to symlink
+  new_mip->INODE.i_mode = EXT2_FT_SYMLINK;
+
+  //store old file's name in newfile's INODE.i_block[] area
+  new_mip->INODE.i_size = strlen(oldfile);
+  memcpy(new_mip->INODE.i_block, oldfile, strlen(oldfile));
+
+  new_mip->dirty = 1;
+  iput(new_mip);
+
+  return 1;
+}
+
+int readlink(char *filename, char *buffer)
+{
+  MINODE *mip;
+  int inumber;
+  char *source_name;
+  
+
+  inumber = getino(&dev, filename);
+  mip = iget(dev, inumber);
+
+  //check to see it's a symlink file
+  if(is_symlink_file(mip) == 0)
+  {
+    printf("readlink: that's not a symlink file\n");
+    iput(mip);
+    return 0;
+  }
+
+  //copy i_block into buffer parameter
+  buffer = strdup(mip->INODE.i_block);
+  return strlen((char *)mip->INODE.i_block);
+}
 
 int mymenu(char *path, char *parameter)
 {
