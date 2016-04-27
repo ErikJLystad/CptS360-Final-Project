@@ -1130,6 +1130,8 @@ int mytouch(char *path, char *parameter)
   if(ino == 0)
   {
     printf("No such file exists\n");
+    creat(path, "megan loves jordan hoebag");
+    ino = getino(&dev, path);
   }
 
   //get the minode[] pointer
@@ -1509,7 +1511,7 @@ int mylink(char *oldfile, char *newfile)
 
 int mychmod(char *newMode, char *path)
 {
-  int octal_form, ino, i;
+  int octal_form, ino, i, file_mode;
   MINODE *mip;
   
   //check for neccessary input
@@ -1540,7 +1542,9 @@ int mychmod(char *newMode, char *path)
   //if atoi returns zero, failed to convert and not octal
   if(octal_form != 0)
   {
-    
+    file_mode = 0xF000 & mip->INODE.i_mode;
+    octal_form = CalculateMode(octal_form);
+    mip->INODE.i_mode = octal_form | file_mode;
   }
   else
   {
@@ -1557,6 +1561,25 @@ int mychmod(char *newMode, char *path)
   iput(mip);
 
   return 1;
+}
+
+int CalculateMode(int octal_input)
+{
+  int i = 0, a =0, output = 0, remainder = 0, power_num = 0;
+  for(i = 0; octal_input != 0; i++)
+  {
+    remainder = octal_input % 10;
+    octal_input /= 10;
+    power_num = i*i;
+    for(a = 2; a < 9; a++)
+    {
+      power_num *= power_num;
+    }
+    //output += (int) (remainder * pow(8.0, (double)i));
+    output += power_num;
+    i++;
+  }
+  return output;
 }
 
 //create a new file & inode, point to same inumber as the old file
