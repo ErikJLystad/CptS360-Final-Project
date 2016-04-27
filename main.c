@@ -311,6 +311,7 @@ int search(MINODE *mip, char *name)
     {
       //printf("block_position = %d\n",block_position);
       //printf("dp->name = %s\tdp->rec_len = %d\n", dp->name, dp->rec_len);
+      //there's a comment here now
       if(strcmp(dp->name, name) == 0)
         return dp->inode;
 
