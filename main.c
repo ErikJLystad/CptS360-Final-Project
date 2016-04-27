@@ -46,7 +46,7 @@ int tokenize(char* name)
   int i = 0;
   char *token, *cwd_name = running->cwd->name;
 
-  //printf("tokenize: name = %s\n", name);
+  printf("tokenize: name = %s\n", name);
 
   if(strcmp(name, "/") == 0)
   {
@@ -259,7 +259,8 @@ int getino(int *device, char *path) //int ino = getino(&dev, pathname) essential
     *device = running->cwd->dev; //running is a pointer to PROC of current running process.
   }
 
-  tokenize(path);
+  printf("getino: path = %s\n", path);
+  tokenize(copy);
   //dname = dirname(copy);
   //printf("dname: %s\n\n", dname);
 
@@ -1411,12 +1412,15 @@ int mystat(char *path, char *parameter)
 //same algorithm as mkdir! slightly different.
 int mycreat(char *pathname, char *parameter)
 {
-  char *parent, *child, *temp_path;
+  char *parent, *child, *temp_path, *copy;
   int inumber, parent_inumber;
   MINODE *parent_minode, *new_minode;
 
   temp_path = strdup(pathname); //prepare for destruction 
-  parent = dirname(temp_path);
+  copy = strdup(running->cwd->name);
+
+  if(pathname[0] != '/')
+    parent = copy;
 
   if(strcmp(parent, ".") == 0)
     parent = "/";
