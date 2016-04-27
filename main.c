@@ -6,6 +6,7 @@
 //Erik: mount_root*, rmdir*, cd*, chmod*, unlink*, stat*, touch*, close, write
 //Megan: mkdir*, ls*, pwd*, link*, symlink, creat*, open, read, lseek, cp
 //whoever: cat, mv
+//Erik's butt
 
 #include "type.h"
 
