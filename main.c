@@ -922,108 +922,75 @@ int mount_root()  // mount root file system, establish / and CWDs
   return 1;
 }
 
-rm_child(MINODE *pip, char *name)
-{
-  char buffer[BLKSIZE], *location, *next;
-  int i, curr_block_position,prev_block_position, temp_block, leftover_space, old_rec_len, temp;
-  int number_dirs = 0, dno = 1;
-  DIR *current, *previous, *last;
-
-  printf("rm_child was passed in name = %s\n", name);
-
-  //search through all the parents blocks
-  for(i = 0; i < 12; i++) 
+int rm_child(MINODE *pip, char *name)
+{ 
+  char buffer[BLKSIZE], *cp;
+  DIR *current;
+  int _dev, number_dirs, dirno, prevlen, x, old_rec_len;
+  
+  cp = buffer;
+  current = (DIR *) buffer;
+  _dev = pip->dev;
+  
+  get_block(_dev,pip->INODE.i_block[0],buffer); //only data block 0 D:
+	
+  //1. Search parent INODE's data block(s) for the entry of name
+  number_dirs = 0;
+	
+  while(cp+current->rec_len < buffer + BLKSIZE) 
   {
-    if(pip->INODE.i_block[i] == 0)
-    {
-      //if it's already 0 then dont bother with it
-      continue;
-    }
-    
-    //get the block for the currently searched directory
-    get_block(pip->dev, pip->INODE.i_block[i], buffer);
-    current = (DIR *)&buffer;
-    location = (char *)current;
-    curr_block_position = 0;
-    
-    while(curr_block_position < BLKSIZE)
-    {
-      number_dirs++;
-      location += current->rec_len;
-      current = (DIR *)location;
-      curr_block_position += current->rec_len;
-    }
-    
-    //Re-initialize
-    current = (DIR *)&buffer;
-    location = (char *)current;
-    next = buffer;
-    next += current->rec_len;
-    
-    printf("current->name if i_block[i] = %s\n", current->name);
-    curr_block_position = current->rec_len;
-    
-    //search the block for a match
-    while(curr_block_position < BLKSIZE)
-    {
-      //we have found a match to name
-      if(strcmp(current->name, name) == 0) 
-      {
-        printf("THE MATCH WAS FOUND! current->name: %s, name: %s\n", current->name, name);
-        
-        //Case 1, last item
-        if(curr_block_position + current->rec_len == BLKSIZE + buffer)
-        {
-          
-          temp = current->rec_len;
-          memset(current, 0, current->rec_len);
-          previous->rec_len += temp;
-        }
-        //case2, first entry or middle entry
-        else
-        {
-          printf("Block position is: %d\n", curr_block_position);
-          //previous = (DIR *)location;
-          old_rec_len = current->rec_len;
-          //curr_block_position += current->rec_len;
-          
-          printf("case 2!!\n"); 
-          
-          //memset(current, 0, current->rec_len);
-          memcpy(location, location + current->rec_len, BLKSIZE - (location - buffer));
-          printf("Successful memcpy\n");
-          
-          for(i = 0; i < (number_dirs -2); i++)
-          {
-            location += current->rec_len;
-            current = (DIR *) location;
-          }
-          
-          last = (DIR *)location;
-          last->rec_len += old_rec_len;
-          
-          
-        }
-        
-        //write back the parents data block
-        printf("calling put_block in rm_child\n");
-        put_block(pip->dev, pip->INODE.i_block[i], buffer);
-        
-        pip->dirty = 1;
-        iput(pip);
-        return 1;
-      }
-      put_block(pip->dev, pip->INODE.i_block[i], buffer);
-      previous = current;
+    cp += current->rec_len;
+    current = (DIR*) cp;
+    number_dirs ++;
+  } number_dirs ++;
+  DIR* lastdir = (DIR*) cp;
 
-      //move forward
-      location = (char *)current;
-      location += current->rec_len;
-      curr_block_position += current->rec_len;
-      current = (DIR *)location;
-    }
+  dirno = 1;
+  prevlen = 0;
+  
+  cp = buffer;
+  current = (DIR *) buffer;
+  
+  while(strncmp(name,current->name,current->name_len)!=0) 
+  {
+    prevlen = current->rec_len;
+    cp += current->rec_len;
+    current = (DIR*) cp;
+    dirno ++;
   }
-  return 0;
+  old_rec_len = current->rec_len;
+ 
+  //2. Erase name entry from parent directory by
+  //Last entry
+  if (number_dirs == dirno)
+  {
+    cp -= prevlen;
+    current = (DIR*) cp;
+    current->rec_len += old_rec_len;
+  }
+  else //front/middle entry
+  {
+    memcpy(cp, cp+old_rec_len, BLKSIZE - (cp - buffer));
+    
+    //TODO
+    cp = buffer;
+    current = (DIR*) cp;
+    x = 0;
+    for(x; x < (number_dirs - 2); x++) 
+    {
+      cp += current->rec_len;
+      current = (DIR*) cp;
+    } 
+    lastdir = (DIR*) cp;
+
+    lastdir->rec_len += old_rec_len; 
+  } 
+  put_block(dev,pip->INODE.i_block[0],buffer);
+  //3. Write the parent's data block back to disk;
+  //   mark parent minode DIRTY for write-back
+  pip->dirty = 1;
+  iput(pip);
+  return 1;
 }
 
 int myrmdir(char *path, char *parameter)
