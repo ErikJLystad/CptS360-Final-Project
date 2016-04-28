@@ -924,9 +924,10 @@ int mount_root()  // mount root file system, establish / and CWDs
 
 rm_child(MINODE *pip, char *name)
 {
-  char buffer[BLKSIZE], *location;
+  char buffer[BLKSIZE], *location, *next;
   int i, curr_block_position,prev_block_position, temp_block, leftover_space, old_rec_len, temp;
-  DIR *current, *previous;
+  int number_dirs = 0, dno = 1;
+  DIR *current, *previous, *last;
 
   printf("rm_child was passed in name = %s\n", name);
 
@@ -943,8 +944,24 @@ rm_child(MINODE *pip, char *name)
     get_block(pip->dev, pip->INODE.i_block[i], buffer);
     current = (DIR *)&buffer;
     location = (char *)current;
-    printf("current->name if i_block[i] = %s\n", current->name);
     curr_block_position = 0;
+    
+    while(curr_block_position < BLKSIZE)
+    {
+      number_dirs++;
+      location += current->rec_len;
+      current = (DIR *)location;
+      curr_block_position += current->rec_len;
+    }
+    
+    //Re-initialize
+    current = (DIR *)&buffer;
+    location = (char *)current;
+    next = buffer;
+    next += current->rec_len;
+    
+    printf("current->name if i_block[i] = %s\n", current->name);
+    curr_block_position = current->rec_len;
     
     //search the block for a match
     while(curr_block_position < BLKSIZE)
@@ -957,7 +974,6 @@ rm_child(MINODE *pip, char *name)
         //Case 1, last item
         if(curr_block_position + current->rec_len == BLKSIZE + buffer)
         {
-          printf("match was in the first entry\n");
           
           temp = current->rec_len;
           memset(current, 0, current->rec_len);
@@ -967,33 +983,25 @@ rm_child(MINODE *pip, char *name)
         else
         {
           printf("Block position is: %d\n", curr_block_position);
-          previous = (DIR *)location;
+          //previous = (DIR *)location;
           old_rec_len = current->rec_len;
-          curr_block_position += current->rec_len;
+          //curr_block_position += current->rec_len;
           
           printf("case 2!!\n"); 
           
-          memset(current, 0, current->rec_len);
-          printf("Successful memset\n");
+          //memset(current, 0, current->rec_len);
+          memcpy(location, location + current->rec_len, BLKSIZE - (location - buffer));
+          printf("Successful memcpy\n");
           
-          location += old_rec_len;
-          current = (DIR *)location;
-          
-          printf("About to shift! Location = %s\n", location);
-          memcpy(location - old_rec_len, location, BLKSIZE-(curr_block_position));
-          
-          printf("successful Shift!!\n");
-          while(curr_block_position < BLKSIZE)
+          for(i = 0; i < (number_dirs -2); i++)
           {
-            printf("Block position is: %d\n", curr_block_position);
-            curr_block_position += current->rec_len;
-            previous = (DIR *)location;
-            location += old_rec_len;
-            current = (DIR *)location;
-            
+            location += current->rec_len;
+            current = (DIR *) location;
           }
-          printf("Escaped loop!!\n");
-          current->rec_len += old_rec_len;
+          
+          last = (DIR *)location;
+          last->rec_len += old_rec_len;
+          
           
         }
         
